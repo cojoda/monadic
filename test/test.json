@@ -1,0 +1,22 @@
+[
+    { "id": 1, "text": "In a single sentence: What is the current Artemis launch date?" },
+    { "id": 2, "text": "In a single sentence: What’s causing SLS rocket delays?" },
+    { "id": 3, "text": "In a single sentence: Will Starship be used for lunar landings?" },
+    { "id": 4, "text": "In a single sentence: How does Artemis differ from Apollo?" },
+    { "id": 5, "text": "In a single sentence: Why did NASA partner with private companies?" },
+    { "id": 6, "text": "In a single sentence: Which is better for Artemis, Orion or Starship?" },
+    { "id": 7, "text": "In a single sentence: What was Blue Origin's proposal?" },
+    { "id": 8, "text": "In a single sentence: What’s the purpose of the Gateway station?" },
+    { "id": 9, "text": "In a single sentence: Which countries are Artemis partners?" },
+    { "id": 10, "text": "In a single sentence: Is a Moon landing by 2030 likely?" },
+    { "id": 11, "text": "In a single sentence: What are key LLM ethical concerns?" },
+    { "id": 12, "text": "In a single sentence: What is retrieval-augmented generation?" },
+    { "id": 13, "text": "In a single sentence: Can LLMs reason logically?" },
+    { "id": 14, "text": "In a single sentence: How do you reduce hallucinations in LLMs?" },
+    { "id": 15, "text": "In a single sentence: Are transformers likely to be replaced soon?" },
+    { "id": 16, "text": "In a single sentence: What does multimodal mean for AI?" },
+    { "id": 17, "text": "In a single sentence: What do embeddings represent?" },
+    { "id": 18, "text": "In a single sentence: Can embeddings store long-term memory?" },
+    { "id": 19, "text": "In a single sentence: How do LLMs use vector memory?" },
+    { "id": 20, "text": "In a single sentence: How would an AI on Artemis retrieve mission logs and engineering notes?" }
+  ]
