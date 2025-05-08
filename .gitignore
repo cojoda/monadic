@@ -1,5 +1,9 @@
+.vscode/**
+__pycache__/**
+venv/**
+
+.DS_Store
 .env
 .envrc
-
-.vscode/**
-venv/**
+client_secret*
+output.wav
