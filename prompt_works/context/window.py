@@ -19,6 +19,10 @@ class SlidingWindow(Context):
         self.__chunks.append(pane)
 
 
+    def extend(self, panes) -> None:
+        self.__chunks.extend(panes)
+
+
     def get_context(self) -> list[Chunk]:
         return list(self.__chunks)
     

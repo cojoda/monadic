@@ -27,15 +27,15 @@ class Chunk:
         return self.__index
 
 
-    def get_role(self) -> str | None:
+    def get_role(self) -> str:
         return self.__role
 
 
-    def get_content(self):
+    def get_content(self) -> Content:
         return self.__content
 
 
-    def get_embed(self):
+    def get_embed(self) -> list[float]:
         return self.__embed
 
 
@@ -52,4 +52,4 @@ class Chunk:
     
     def __repr__(self) -> str:
         return (f"{{'role': '{self.__role}',"
-                  f"'content': '{self.__content}'}}")
+                f"'content': '{self.__content}'}}")
