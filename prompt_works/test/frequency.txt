@@ -509,9 +509,9 @@ Rest assured, based on the official OpenAI API documentation, frequency_penalty 
 
 〉 python chat.py
 Traceback (most recent call last):
-  File "/Users/cody/src/prompt_lab/chat.py", line 32, in <module>
+  File "/Users/cody/src/prompt_works/chat.py", line 32, in <module>
     reply = completion('Write a one sentence story.')
-  File "/Users/cody/src/prompt_lab/chat.py", line 13, in <lambda>
+  File "/Users/cody/src/prompt_works/chat.py", line 13, in <lambda>
     completion = lambda text: client.responses.create(
                               ~~~~~~~~~~~~~~~~~~~~~~~^
         model=COMPLETION_DEFAULT,
@@ -521,7 +521,7 @@ Traceback (most recent call last):
     
     )
     ^
-  File "/Users/cody/src/prompt_lab/venv/lib/python3.13/site-packages/openai/_utils/_utils.py", line 287, in wrapper
+  File "/Users/cody/src/prompt_works/venv/lib/python3.13/site-packages/openai/_utils/_utils.py", line 287, in wrapper
     return func(*args, **kwargs)
 TypeError: Responses.create() got an unexpected keyword argument 'frequency_penalty'
 Okay, thank you for providing the traceback. This is much clearer than a linter warning!
@@ -531,7 +531,7 @@ TypeError: Responses.create() got an unexpected keyword argument 'frequency_pena
 
 Means:
 
-At runtime, when your Python script executed the line calling client.responses.create(...), the specific version of the openai library installed in your virtual environment (/Users/cody/src/prompt_lab/venv/) does not recognize frequency_penalty as a valid parameter for that particular method.
+At runtime, when your Python script executed the line calling client.responses.create(...), the specific version of the openai library installed in your virtual environment (/Users/cody/src/prompt_works/venv/) does not recognize frequency_penalty as a valid parameter for that particular method.
 
 Conclusion & Solution:
 
@@ -544,7 +544,7 @@ Please do the following within your activated virtual environment:
 Activate your venv (if not already active):
 
 Bash
-source /Users/cody/src/prompt_lab/venv/bin/activate
+source /Users/cody/src/prompt_works/venv/bin/activate
  Check your current version:
 
 Bash
@@ -574,7 +574,7 @@ Let's try these steps to pinpoint the issue:
 Verify Exact Installed Version (Crucial): Please activate your venv and run this command again, and share the output:
 
 Bash
-# Make sure venv is active: source /Users/cody/src/prompt_lab/venv/bin/activate
+# Make sure venv is active: source /Users/cody/src/prompt_works/venv/bin/activate
 pip show openai
  We need to know the exact version number (e.g., 1.35.0, 1.34.1, etc.).
 
@@ -612,7 +612,7 @@ Home-page: https://github.com/openai/openai-python
 Author:
 Author-email: OpenAI <support@openai.com>
 License: Apache-2.0
-Location: /Users/cody/src/prompt_lab/venv/lib/python3.13/site-packages
+Location: /Users/cody/src/prompt_works/venv/lib/python3.13/site-packages
 Requires: anyio, distro, httpx, jiter, pydantic, sniffio, tqdm, typing-extensions
 Required-by:
 Okay, thank you. Version 1.76.2 is indeed very recent (assuming a typical release cadence relative to today's date, May 3, 2025).

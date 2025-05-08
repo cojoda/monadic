@@ -1,20 +1,60 @@
 from collections import deque
 
+from .context import Context
+from ..history.chunk import Chunk
 
 
-class Window:
 
-    def __init__(self, size):
-        self.max_size = size
-        self.window = deque(maxlen=self.max_size)
+class SlidingWindow(Context):
 
-    def slide(self, pane):
-        front = self.window.popleft()
-        self.window.append(pane)
-        return front
+    def __init__(self, size) -> None:
+        self.__chunks = deque(maxlen=size)
+
+
+    def __len__(self) -> int:
+         return len(self.__chunks)
     
-    def open(self):
-        return [pane['index'] for pane in self.window]
+
+    def add(self, pane) -> None:
+        self.__chunks.append(pane)
+
+
+    def get_context(self) -> list[Chunk]:
+        return list(self.__chunks)
     
-    def __len__(self):
-        return len(self.window)
+
+    def get_size(self) -> int | None:
+        return self.__chunks.maxlen
+    
+
+    def get_window(self) -> list[dict[str,str]]:
+        return [chunk.get_chunk() for chunk in list(self.__chunks)]
+    
+
+    def __repr__(self) -> str:
+        return repr([f'{chunk}' for chunk in self.get_context()])
+    
+
+
+# class StaticWindow(Context):
+
+#     def __init__(self, size) -> None:
+#         self.__size = size
+#         self.__panes = []
+
+
+#     def __len__(self) -> int:
+#         return len(self.__panes)
+
+
+#     def add(self, pane) -> None:
+#         if (len(self.__panes)) < self.__size:
+#             self.__panes.append(pane)
+
+
+#     def get_context(self) -> list[Chunk]:
+#         return self.__panes.copy()
+    
+
+#     def get_size(self) -> int:
+#         return self.__size
