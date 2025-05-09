@@ -1,42 +1,42 @@
 from collections import deque
 
-from .context import Context
-from ..history.chunk import Chunk
 
 
+class SlidingWindow:
 
-class SlidingWindow(Context):
+    def __init__(self, size, history=None) -> None:
+        if history != None:
+            window = history[-1*(len(history)):]
+            self.__window = deque(window, maxlen=size)
+        else:
+            self.__window = deque(maxlen=size)
 
-    def __init__(self, size) -> None:
-        self.__chunks = deque(maxlen=size)
 
+    # Add to
+
+    def add(self, chunk) -> None:
+        self.__window.append(chunk)
+
+
+    def extend(self, chunks) -> None:
+        self.__window.extend(chunks)
+
+
+    # Overloads
 
     def __len__(self) -> int:
-         return len(self.__chunks)
+         return len(self.__window)
     
 
-    def add(self, pane) -> None:
-        self.__chunks.append(pane)
-
-
-    def extend(self, panes) -> None:
-        self.__chunks.extend(panes)
-
-
-    def get_context(self) -> list[Chunk]:
-        return list(self.__chunks)
-    
+    # Getters
 
     def get_size(self) -> int | None:
-        return self.__chunks.maxlen
+        return self.__window.maxlen
     
 
+    # return list of chunks in window
     def get_window(self) -> list[dict[str,str]]:
-        return [chunk.get_chunk() for chunk in list(self.__chunks)]
-    
-
-    def __repr__(self) -> str:
-        return repr([f'{chunk}' for chunk in self.get_context()])
+        return list(self.__window)
     
 
 

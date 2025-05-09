@@ -1,20 +1,20 @@
 import pyaudio
+import threading
 import wave
-from threading import Thread
 
-from ..config import RecordConfig
-
+from prompt_works import config
 
 
 
 class Record:
 
     def __init__(self):
-        self.config = RecordConfig
-        self.recording = False
-        self.frames = []
+        self.config      = config.RecordConfig
+        self.recording   = False
+        self.frames      = []
         self.output_file = self.config.filename
-        thread = Thread(target = self.keyboard)
+
+        thread = threading.Thread(target = self.keyboard)
         thread.start()
         self.listen()
         thread.join()
@@ -24,15 +24,17 @@ class Record:
     def listen(self):
         self.recording = True
         audio = pyaudio.PyAudio()
-        stream = audio.open(format=self.config.format,
-                            channels=self.config.channels,
-                            rate=self.config.rate,
-                            input=True,
+        stream = audio.open(format           =self.config.format,
+                            channels         =self.config.channels,
+                            rate             =self.config.rate,
+                            input            =True,
                             frames_per_buffer=self.config.chunk)
+        
         print('Recording... Press Enter to stop.')
         while self.recording:
             data = stream.read(self.config.chunk)
             self.frames.append(data)
+
         stream.stop_stream()
         stream.close()
         audio.terminate()

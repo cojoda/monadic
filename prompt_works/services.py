@@ -1,3 +1,4 @@
-from openai import OpenAI
-openai_client = OpenAI()
+import openai
 
+
+openai_client = openai.OpenAI()

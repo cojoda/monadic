@@ -14,7 +14,6 @@ def responses(input):
     )
 
 
-
 def embeddings(input):
     return services.openai_client.embeddings.create(
         model=config.EMBEDDING_DEFAULT,
@@ -22,10 +21,9 @@ def embeddings(input):
     )
 
 
-
 def transcriptions(filename):
     with open(filename, 'rb') as audio_file:
         return services.openai_client.audio.transcriptions.create(
             model='gpt-4o-transcribe',
-            file=audio_file
+            file =audio_file
         )

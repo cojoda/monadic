@@ -37,8 +37,8 @@ def colorize_text_in_terminal(text_string: str, words_to_colorize: list[str]):
     try:
         pattern = re.compile(pattern_string)
     except re.error as e:
-        print(f"Error compiling regex pattern: {e}")
-        print(f"Original text: {text_string}") # Print original if pattern fails
+        print(f'Error compiling regex pattern: {e}')
+        print(f'Original text: {text_string}') # Print original if pattern fails
         return
 
     last_end = 0
@@ -49,10 +49,10 @@ def colorize_text_in_terminal(text_string: str, words_to_colorize: list[str]):
         # Add the part of the string before the match
         result_parts.append(text_string[last_end:start])
         # Add the colorized matched word
-        result_parts.append(f"{RED}{match.group(0)}{RESET}")
+        result_parts.append(f'{RED}{match.group(0)}{RESET}')
         last_end = end
     
     # Add the remaining part of the string after the last match
     result_parts.append(text_string[last_end:])
     
-    print("".join(result_parts))
+    print(''.join(result_parts))
