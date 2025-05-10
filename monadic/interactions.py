@@ -14,11 +14,13 @@ def responses(input):
     )
 
 
+
 def embeddings(input):
     return services.openai_client.embeddings.create(
         model=config.EMBEDDING_DEFAULT,
         input=input
     )
+
 
 
 def transcriptions(filename):

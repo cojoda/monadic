@@ -1,4 +1,8 @@
-from prompt_works import interactions
+from __future__ import annotations
+
+from monadic import interactions
+
+from .chunk_ops import merge, cut, chunker
 
 
 
@@ -12,7 +16,7 @@ class Chunk:
         self.__role    = role
         self.__content = content
         self.__embed   = interactions.embeddings(content).data[0].embedding
-        self.__context = None
+        self.__context: list[Chunk] = []
     
 
     # Getters
@@ -33,7 +37,7 @@ class Chunk:
         return self.__embed
 
 
-    def get_context(self):
+    def get_context(self) -> list[Chunk]:
         return self.__context
 
 
@@ -49,15 +53,3 @@ class Chunk:
 
     def get_form(self):
         return {'role': self.__role, 'content': self.__content}
-
-
-    def __lt__(self, other):
-        # other is the object on the right side of the < operator
-        if isinstance(other, Chunk):
-            # Implement your custom comparison logic here
-            return self.get_index() < other.get_index()
-        # If 'other' is not of the same type or a type you can compare with,
-        # it's good practice to return NotImplemented.
-        # This allows Python to try other comparison mechanisms,
-        # like calling __gt__ on the 'other' object if defined.
-        return NotImplemented

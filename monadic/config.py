@@ -3,6 +3,7 @@ import pyaudio
 from dataclasses import dataclass
 
 
+
 @dataclass
 class RecordConfig:
     chunk:    int = 1024
@@ -10,6 +11,7 @@ class RecordConfig:
     channels: int = 1
     rate:     int = 44100
     filename: str = 'data/audio/recording/output.wav'
+
 
 
 @dataclass

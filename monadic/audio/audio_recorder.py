@@ -2,7 +2,7 @@ import pyaudio
 import threading
 import wave
 
-from prompt_works import config
+from monadic import config
 
 
 

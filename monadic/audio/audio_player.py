@@ -2,6 +2,7 @@ import pyaudio
 import wave
 
 
+
 def play_audio(filename='data/audio/recording/output.wav'):
     wf = wave.open(filename, 'rb')
     p  = pyaudio.PyAudio()
@@ -19,6 +20,7 @@ def play_audio(filename='data/audio/recording/output.wav'):
     stream.stop_stream()
     stream.close()
     p.terminate()
+
 
 
 play_audio()

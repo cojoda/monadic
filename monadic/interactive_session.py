@@ -2,7 +2,12 @@ import logging
 
 from . import interactions
 
-from prompt_works.history import event_timeline
+from monadic.history import event_timeline
+
+
+
+logger = logging.getLogger(__name__)
+
 
 
 class Interact:
@@ -15,8 +20,7 @@ class Interact:
 
     def respond(self, content) -> str:
         self.timeline.add_history('user', content)
-        logging.debug('},\n'.join(str(self.timeline.get_history()).split('},')))
-        # for line in str(self.timeline.get_history()).split('},'): print(line+'}')
+        logger.debug('},\n'.join(str(self.timeline.get_history()).split('},')))
         response = interactions.responses(self.timeline.get_history()).output_text
         self.timeline.add_history('assistant', response)
         return response
