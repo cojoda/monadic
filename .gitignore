@@ -179,4 +179,4 @@ cython_debug/
 .ruff_cache/
 
 # PyPI configuration file
-.pypirc
+.pypirc.direnv/
