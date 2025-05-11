@@ -96,7 +96,7 @@ monadic/
 ├── .venv/                 # virtualenv (git-ignored)
 ├── .envrc                 # direnv environment hook (git-ignored)
 ├── requirements.txt       # Python dependencies
-├── monadic/          # main package
+├── monadic/               # main package
 ├── tests/                 # mirrored test structure
 └── README.md              # this guide!
 ```
