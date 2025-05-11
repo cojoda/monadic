@@ -5,7 +5,7 @@
 ### On macOS
 
 ```bash
-brew update && brew upgrade
+brew update
 brew install python direnv
 ```
 
