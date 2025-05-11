@@ -25,6 +25,49 @@ def delete_lines(n):
 
 
 
+def skip_lines(n):
+    print('', end=('\n'*n))
+
+
+
+def print_color(text:str, color):
+    print(f'{color}{text}\033[0m')
+
+
+
+def get_input():
+    print('Press Enter to start recording or type a question:')
+    skip_lines(1)
+    print(f'{config.YEL}', end='')
+    text = input()
+    print(f'{config.CLR}', end='')
+
+    if text == 'exit': return text
+    
+    if text == '':
+        delete_lines(3)
+        skip_lines(2)
+        text = transcribe()
+        print_color(text, config.YEL)
+        skip_lines(2)
+    elif text == 'audit':
+        delete_lines(3)
+        skip_lines(2)
+        print(f'{text}')
+        skip_lines(2)
+        toggle_audit()
+    elif text == 'clear':
+        clear_screen()
+    else:
+        delete_lines(3)
+        skip_lines(2)
+        print_color(text, config.YEL)
+        skip_lines(2)
+    return text
+
+
+
+# Load script from command line args supplied filename
 def get_script():
     try:
         file = open(sys.argv[1], 'r', encoding='utf-8')
@@ -36,48 +79,38 @@ def get_script():
 
 
 
-
-def get_input():
-    print('Press Enter to start recording or type a question:', end=f'\n\n{config.YEL}')
-    text = input()
-    print(f'{config.CLR}', end='')
-
-    if text == '':
-        delete_lines(3)
-        print('\n\n', end='')
-        recording = audio_recorder.Record()
-        delete_lines(2)
-        text = transcriptions(recording.output_file).text
-        print(f'{config.YEL}{text}{config.CLR}\n')
-    elif text == 'audit':
-        delete_lines(3)
-        print(f'\n\n{text}\n\n')
-        if config.logging.getLogger().getEffectiveLevel() == config.logging.WARNING:
-            config.logging.getLogger().setLevel(config.logging.INFO)
-            logger.info("Audit logging enabled")
-        else:
-            logger.info("Audit logging disabled")
-            config.logging.getLogger().setLevel(config.logging.WARNING)
-        return text
-    elif text in ('clear', 'exit'):
-        if text == 'clear':
-            clear_screen()
-        return text
-    else:
-        delete_lines(3)
-        print(f'\n\n{config.YEL}{text}{config.CLR}\n')
+# Start audio recording for transcription
+def transcribe():
+    recording = audio_recorder.Record()
+    delete_lines(2)
+    text = transcriptions(recording.output_file).text
     return text
+
+
+
+# Toggle debug logging (off by default)
+def toggle_audit():
+    if config.logging.getLogger().getEffectiveLevel() == config.logging.WARNING:
+        config.logging.getLogger().setLevel(config.logging.INFO)
+        logger.info("Audit logging enabled")
+    else:
+        logger.info("Audit logging disabled")
+        config.logging.getLogger().setLevel(config.logging.WARNING)
+    
 
 
 
 def start():
     conversation = interactive_session.Interact()
+
+    # CLI arg supplied input file?
     script = get_script() if len(sys.argv) > 1 else False
 
     while True:
         print('--------------------------------------------------------------------')
 
         if not script:
+            # no script, get input and process any instructions
             text = get_input()
             if text in ('audit', 'clear'):
                 if text == 'clear':
@@ -86,13 +119,17 @@ def start():
             if text == 'exit':
                 return
         else:
-            if not script:
-                return
+            # use each line of input as query
             text = script.pop(0)
-            print(f'\n{config.YEL}{text}{config.CLR}')
+            skip_lines(2)
+            print_color(text, config.YEL)
+            skip_lines(2)
 
+        # Querry LLM
         response = conversation.respond(text)
-        print(f'\n{config.BLU}{response}{config.CLR}\n\n')  # Blue response
+        skip_lines(1)
+        print_color(response, config.BLU)
+        skip_lines(2)
 
 
 
