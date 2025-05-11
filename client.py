@@ -47,7 +47,7 @@ def get_input():
     print(f'{CLR}', end='')  # Reset color
 
     if text == '':
-        delete_lines(4)
+        delete_lines(3)
         print('\n\n', end='')
         recording = audio_recorder.Record()
         delete_lines(2)
