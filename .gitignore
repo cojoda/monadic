@@ -1,10 +1,12 @@
-.vscode/**
 
+# Audio
+*.mp3
+*.wav
+*.raw
+*.pcm
+
+# macOS
 .DS_Store
-.envrc
-client_secret*
-output.wav
-
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -138,6 +140,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.envrc
 .direnv/
 env/
 venv/
@@ -169,6 +172,9 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Visual Studio Code
+.vscode/
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
@@ -181,4 +187,3 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-
