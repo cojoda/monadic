@@ -94,11 +94,16 @@ Example directory structure:
 ```
 monadic/
 ├── .venv/                 # virtualenv (git-ignored)
-├── .envrc                 # direnv environment hook (git-ignored)
-├── requirements.txt       # Python dependencies
 ├── monadic/               # main package
 ├── tests/                 # mirrored test structure
-└── README.md              # this guide!
+├── .env                   # direnv environment vars (git-ignored)
+├── .envrc                 # direnv environment hook (git-ignored)
+├── .gitignore             # github generated python .gitignore with additions
+├── client.py              # monadic launcher
+├── LICENSE                # Apache-2.0 license
+├── README.md              # this guide!
+├── requirements.txt       # Python dependencies
+└── requirements-dev.txt   # Python dependencies for pytest
 ```
 
 ---
