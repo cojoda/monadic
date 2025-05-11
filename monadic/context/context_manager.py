@@ -10,8 +10,8 @@ class Context:
     def __init__(self,
                  chunk: data_chunk.Chunk,
                  history) -> None:
-        self.__index = chunk.get_index()
-        self.__window = window.DynamicWindow(history, self.__index, 3)
+        self.__id = chunk.get_id()
+        self.__window = window.DynamicWindow(history, self.__id, 3)
         self.__ancestry = ancestry_tree.Ancestry(chunk, history)
         
 
@@ -22,8 +22,8 @@ class Context:
         roles = itertools.cycle(['assistant', 'user'])
         ancestry = self.__ancestry.get_ancestry()
         window = self.__window.get_window()
-        start = max(self.__index - self.__window.get_size(), 0)
-        window = window[start:self.__index]
+        start = max(self.__id - self.__window.get_size(), 0)
+        window = window[start:self.__id]
         for chunk in ancestry:
             if chunk not in context and chunk not in window:
                 context.append(chunk)
@@ -44,5 +44,5 @@ class Context:
 
 
 
-    def get_form(self):
+    def get_form(self) -> list[str]:
         return [f'{chunk}' for chunk in self.get_context()]

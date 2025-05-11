@@ -10,9 +10,11 @@ class Ancestry:
         self.__ancestors = self._resolve(target, ancestors)
 
 
+
     # return as list of chunks in ancestry
     def get_ancestry(self):
         return [ancestor['chunk'] for ancestor in self.__ancestors]
+
 
 
     def _distance(self,
@@ -27,6 +29,7 @@ class Ancestry:
         norm_2 = numpy.linalg.norm(v2)
         return dot_product / (norm_1 * norm_2)
     
+
 
     def _resolve(self,
                  target,

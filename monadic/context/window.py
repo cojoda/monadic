@@ -4,9 +4,9 @@
 
 class DynamicWindow:
 
-    def __init__(self, history, index, size) -> None:
+    def __init__(self, history, id, size) -> None:
         self.__window = history
-        self.__index = index
+        self.__id = id
         self.__size = size
 
 

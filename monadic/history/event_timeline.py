@@ -10,7 +10,7 @@ class Timeline:
     def __init__(self) -> None:
         self.__history: list[data_chunk.Chunk]  = []
         self.__last:    data_chunk.Chunk | None = None
-        self.__index:   int                     = 0
+        self.__id:   int                     = 0
 
 
 
@@ -23,8 +23,8 @@ class Timeline:
         last_context = context_manager.Context(self.__last, self.__history)
         self.__last.set_context(last_context)
 
-        # But allow it to context itself afterwards splitting
-        self.__index = len(self.__history)
+        # But allow it to context itself after
+        self.__id = len(self.__history)
         chunk_content_list = chunk_ops.chunker(content)
         for chunk_content in chunk_content_list:
             chunk = data_chunk.Chunk(role, chunk_content, len(self.__history))
@@ -50,11 +50,11 @@ class Timeline:
 
     # Returns committed chunks
     def get_last(self) -> list[data_chunk.Chunk]:
-        return self.__history[self.__index:]
+        return self.__history[self.__id:]
     
 
 
     # Returns pending chunks
     def get_rest(self) -> list[data_chunk.Chunk]:
-        return self.__history[:self.__index]
+        return self.__history[:self.__id]
     

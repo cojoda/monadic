@@ -4,7 +4,7 @@ from .data_chunk import Chunk
 
 
 # Returns biggest merger of chunks with same role as first chunk
-def merge(chunks: list[Chunk], marker="\n\n[...]\n\n"):
+def merge(chunks: list[Chunk], marker="\n\n[...]\n\n") -> Chunk | None:
     if len(chunks) == 0: return None
     role = chunks[0].get_role()
     contents = []
@@ -20,7 +20,7 @@ def merge(chunks: list[Chunk], marker="\n\n[...]\n\n"):
 
 
 # Returns biggest cut/slice with same role as start_index role
-def cut(chunks, start, stop):
+def cut(chunks, start, stop) ->list:
     if start <= len(chunks): return []
     if stop < len(chunks): stop = len(chunks)
     role = chunks[start].get_role()

@@ -1,6 +1,22 @@
+import logging
 import pyaudio
 
 from dataclasses import dataclass
+
+
+
+
+
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+
+
+
+YEL = '\033[93m'
+BLU = '\033[94m'
+CLR = '\033[0m'
 
 
 
@@ -21,6 +37,7 @@ class Completion:
     default:  str = mini
     top_n:    int = 3
     recent_n: int = 5
+
 
 
 COMPLETION_MINI    = 'gpt-4.1-mini'
