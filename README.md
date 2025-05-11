@@ -68,13 +68,13 @@ OPENAI_API_KEY=your-api-key-here
 # include any other desired environment variables below
 ```
 
-4. Allow direnv
+5. Allow direnv
 ```bash
 direnv allow
 ```
 You should now see your shell environment automatically activate .venv.
 
-5. Upgrade pip and install dependencies to venv
+6. Upgrade pip and install dependencies to venv
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
