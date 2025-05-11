@@ -78,6 +78,9 @@ You should now see your shell environment automatically activate .venv.
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# Optional install for pytest unit testing
+pip install -r requirements-dev.txt
 ```
 
 Optional: if you’re using pip-tools, compile requirements.txt from requirements.in:
