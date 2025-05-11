@@ -7,13 +7,13 @@ from monadic import interactions
 class Chunk:
     
     def __init__(self,
-                 role,
-                 content,
-                 index  =-1):
-        self.__index   = index
-        self.__role    = role
-        self.__content = content
-        self.__embed   = interactions.embeddings(content).data[0].embedding
+                 role:    str,
+                 content: str,
+                 index:   int=-1):
+        self.__index:   int         = index
+        self.__role:    str         = role
+        self.__content: str         = content
+        self.__embed:   list[float] = interactions.embeddings(content).data[0].embedding
         self.__context: list[Chunk] = []
     
 

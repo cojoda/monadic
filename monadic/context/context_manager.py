@@ -33,12 +33,15 @@ class Context:
         return context
 
 
+
     def __len__(self) -> int:
         return len(self.get_context())
 
 
+
     def __iter__(self):
         return iter(self.get_context())
+
 
 
     def get_form(self):
