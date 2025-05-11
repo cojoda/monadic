@@ -20,7 +20,8 @@ class Interact:
 
     def respond(self, content) -> str:
         self.timeline.add_history('user', content)
-        logger.debug('},\n'.join(str(self.timeline.get_history()).split('},')))
-        response = interactions.responses(self.timeline.get_history()).output_text
-        self.timeline.add_history('assistant', response)
-        return response
+        logger.info('\033[35m'+'},\n'.join(str(self.timeline.get_history()).split('},'))+'\033[0m')
+        response = interactions.responses(self.timeline.get_history())
+        logger.info(f'\033[35minput tokens: {response.usage.input_tokens}; output tokens: {response.usage.output_tokens}\033[0m')
+        self.timeline.add_history('assistant', response.output_text)
+        return response.output_text

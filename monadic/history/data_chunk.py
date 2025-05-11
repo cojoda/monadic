@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from monadic import interactions
 
-from .chunk_ops import merge, cut, chunker
-
 
 
 class Chunk:

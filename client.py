@@ -57,7 +57,7 @@ def get_input():
         delete_lines(3)
         print(f'\n\n{text}\n\n')
         if logging.getLogger().getEffectiveLevel() == logging.WARNING:
-            logging.getLogger().setLevel(logging.DEBUG)
+            logging.getLogger().setLevel(logging.INFO)
             logger.info("Audit logging enabled")
         else:
             logger.info("Audit logging disabled")
