@@ -6,13 +6,16 @@ class Ancestry:
 
     def __init__(self,
                  target,
-                 ancestors: list) -> None:
+                 ancestors: list | None) -> None:
+        if target is None: target = []
+        if ancestors is None: ancestors = []
         self.__ancestors = self._resolve(target, ancestors)
 
 
 
     # return as list of chunks in ancestry
     def get_ancestry(self):
+        if self.__ancestors is None: return []
         return [ancestor['chunk'] for ancestor in self.__ancestors]
 
 
@@ -33,7 +36,9 @@ class Ancestry:
 
     def _resolve(self,
                  target,
-                 ancestors: list) -> list[dict]:
+                 ancestors: list | None) -> list[dict]:
+        if target is None or ancestors is None: return []
+
         distances = []
         for ancestor in ancestors:
             distances.append({'distance': self._distance(target, ancestor),

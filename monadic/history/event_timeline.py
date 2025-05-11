@@ -8,15 +8,17 @@ from monadic.context import context_manager
 class Timeline:
     
     def __init__(self) -> None:
+        self.__id:      int                     = 0
         self.__history: list[data_chunk.Chunk]  = []
         self.__last:    data_chunk.Chunk | None = None
-        self.__id:   int                     = 0
 
 
 
     def add_history(self,
-                    role,
-                    content) -> None:
+                    role:    str | None,
+                    content: str | None) -> None:
+        if role is None: role = ''
+        if content is None: content = ''
         
         # Prevents query from contexting itself during the query
         self.__last = data_chunk.Chunk(role, content, len(self.__history))

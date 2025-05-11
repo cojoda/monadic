@@ -8,10 +8,17 @@ from monadic.history import data_chunk
 class Context:
 
     def __init__(self,
-                 chunk: data_chunk.Chunk,
-                 history) -> None:
-        self.__id = chunk.get_id()
-        self.__window = window.DynamicWindow(history, self.__id, 3)
+                 chunk:   data_chunk.Chunk       | None,
+                 history: list[data_chunk.Chunk] | None) -> None:
+        
+        self.__id:       int                    | None = None
+        self.__window:   window.DynamicWindow   | None = None
+        self.__ancestry: ancestry_tree.Ancestry | None = None
+        if chunk is None: return
+        if history is None: history = []
+
+        self.__id       = chunk.get_id()
+        self.__window   = window.DynamicWindow(history, self.__id, 3)
         self.__ancestry = ancestry_tree.Ancestry(chunk, history)
         
 
