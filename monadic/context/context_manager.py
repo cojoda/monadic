@@ -1,7 +1,14 @@
 import itertools
+import logging
+
+from monadic import config
+from monadic.history import data_chunk 
 
 from . import ancestry_tree, window
-from monadic.history import data_chunk 
+
+
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -18,8 +25,9 @@ class Context:
         if history is None: history = []
 
         self.__id       = chunk.get_id()
-        self.__window   = window.DynamicWindow(history, self.__id, 3)
+        self.__window   = window.DynamicWindow(history, self.__id, 2)
         self.__ancestry = ancestry_tree.Ancestry(chunk, history)
+        self.__log_init()
         
 
 
@@ -59,3 +67,7 @@ class Context:
 
     def get_form(self) -> list[str]:
         return [f'{chunk}' for chunk in self.get_context()]
+
+
+    def __log_init(self):
+        logger.info(f'{config.CON}\nid: {self.__id}{config.CLR}')

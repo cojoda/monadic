@@ -1,3 +1,6 @@
+visual/
+output*
+_misc/
 
 # Audio
 *.mp3

@@ -1,7 +1,7 @@
+from monadic import config
 import os
 import sys
 
-from monadic import config
 
 from monadic import interactive_session
 from monadic.audio import audio_recorder
@@ -51,11 +51,12 @@ def get_input():
         print_color(text, config.YEL)
         skip_lines(2)
     elif text == 'audit':
-        delete_lines(3)
-        skip_lines(2)
-        print(f'{text}')
-        skip_lines(2)
-        toggle_audit()
+        return text
+        # delete_lines(3)
+        # skip_lines(2)
+        # print(f'{text}')
+        # skip_lines(2)
+        # toggle_audit()
     elif text == 'clear':
         clear_screen()
     else:
@@ -109,21 +110,27 @@ def start():
     while True:
         print('--------------------------------------------------------------------')
 
-        if not script:
-            # no script, get input and process any instructions
-            text = get_input()
-            if text in ('audit', 'clear'):
-                if text == 'clear':
-                    conversation = interactive_session.Interact()
-                continue
-            if text == 'exit':
-                return
-        else:
-            # use each line of input as query
+        if script:
             text = script.pop(0)
             skip_lines(2)
             print_color(text, config.YEL)
             skip_lines(2)
+        else:
+            text = get_input()
+        
+        if text == 'audit':
+            delete_lines(3)
+            skip_lines(2)
+            print(f'{text}')
+            skip_lines(2)
+            toggle_audit()
+            continue
+        if text in ('clear'):
+            conversation = interactive_session.Interact()
+            continue
+        if text == 'exit':
+            return
+            
 
         # Querry LLM
         response = conversation.respond(text)

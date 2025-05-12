@@ -1,9 +1,21 @@
+import logging
+
 from . import services
 from . import config
 
 
 
+logger = logging.getLogger(__name__)
+
+
+
+def log_interanction(input):
+    logger.info('\n'+config.MON+'},\n'.join(str(input).split('},'))+config.CLR)
+
+
+
 def responses(input):
+    log_interanction(input)
     return services.openai_client.responses.create(
         input            =input,
         model            =config.COMPLETION_DEFAULT,
@@ -16,6 +28,7 @@ def responses(input):
 
 
 def embeddings(input):
+    log_interanction(f'openai_client.embeddings.create: {len(input)} embeddings requested')
     return services.openai_client.embeddings.create(
         model=config.EMBEDDING_DEFAULT,
         input=input

@@ -43,6 +43,7 @@ def cut(chunks: list[Chunk] | None,
 
 def chunker(text: str | None) -> list[str]:
     if text is None: return []
-    normalized = text.replace('\r\n', '\n').replace('@', '\n')
-    paragraphs = re.split(r'\n\s*\n', normalized.strip())
+    # normalized = '\n'.join(text.splitlines())
+    text = text.replace('\\#', '\n\n')
+    paragraphs = re.split(r'\n\s*\n', text.strip())
     return [paragraph.strip() for paragraph in paragraphs if paragraph.strip()]

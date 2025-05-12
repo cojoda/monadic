@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import logging
+
+from monadic import config
 from monadic import interactions
+
+
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -9,12 +16,17 @@ class Chunk:
     def __init__(self,
                  role:    str,
                  content: str,
-                 index:   int=-1) -> None:
-        self.__id:      int         = index
+                 id:      int=-1,
+                 embed:   list[float]|None=None) -> None:
+        self.__id:      int         = id
         self.__role:    str         = role
         self.__content: str         = content
-        self.__embed:   list[float] = interactions.embeddings(content).data[0].embedding
+        
+        self.__embed: list[float] | None = embed
         self.__context: list[Chunk] = []
+        if embed is None:
+            self.__embed = interactions.embeddings([content]).data[0].embedding
+        self.__log_init()
     
 
     # Getters
@@ -36,6 +48,7 @@ class Chunk:
 
 
     def get_embed(self) -> list[float]:
+        if self.__embed is None: return []
         return self.__embed
 
 
@@ -52,3 +65,6 @@ class Chunk:
     def set_context(self, context) -> None:
         self.__context = context
 
+
+    def __log_init(self):
+        logger.info(f'{config.HIS}\nid: {self.__id}\ncontent: {self.__content}{config.CLR}')

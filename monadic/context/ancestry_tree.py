@@ -22,8 +22,8 @@ class Ancestry:
         if self.__ancestors is None: return []
         ancestor_chunks = [ancestor['chunk'] for ancestor in self.__ancestors]
         next_gen = self._get_next_gen(ancestor_chunks)
-        # print(f'\033[93m{next_gen}\033[0m')
         return next_gen
+
 
 
     def _distance(self,
@@ -51,7 +51,7 @@ class Ancestry:
             distances.append({'distance': self._distance(target, ancestor),
                               'chunk':    ancestor})
         distances.sort(key=lambda i: i['distance'])
-        return distances[-3:]
+        return distances[-2:]
 
 
 
