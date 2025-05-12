@@ -21,9 +21,10 @@ class Timeline:
         if content is None: content = ''
         
         # Prevents query from contexting itself during the query
-        self.__last = data_chunk.Chunk(role, content, len(self.__history))
-        last_context = context_manager.Context(self.__last, self.__history)
-        self.__last.set_context(last_context)
+        if role == 'user':
+            self.__last = data_chunk.Chunk(role, content, len(self.__history))
+            last_context = context_manager.Context(self.__last, self.__history)
+            self.__last.set_context(last_context)
 
         # But allow it to context itself after
         self.__id = len(self.__history)
@@ -59,4 +60,3 @@ class Timeline:
     # Returns pending chunks
     def get_rest(self) -> list[data_chunk.Chunk]:
         return self.__history[:self.__id]
-    

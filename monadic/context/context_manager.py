@@ -25,11 +25,17 @@ class Context:
 
     # return list of chunks in context
     def get_context(self) -> list:
+        if self.__ancestry is not None:
+            ancestry = self.__ancestry.get_ancestry()
+        else: ancestry = []
+        if self.__window is not None:
+            window = self.__window.get_window()
+        else: window = []
+        if self.__id is not None and self.__window is not None:
+            start = max(self.__id - self.__window.get_size(), 0)
+        else: start = 0
         context = []
         roles = itertools.cycle(['assistant', 'user'])
-        ancestry = self.__ancestry.get_ancestry()
-        window = self.__window.get_window()
-        start = max(self.__id - self.__window.get_size(), 0)
         window = window[start:self.__id]
         for chunk in ancestry:
             if chunk not in context and chunk not in window:

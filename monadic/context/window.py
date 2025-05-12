@@ -32,6 +32,7 @@ class DynamicWindow:
         return self.__size
     
 
+
     # return list of chunks in window
     def get_window(self) -> list[dict[str,str]]:
         if self.__window is None: return []

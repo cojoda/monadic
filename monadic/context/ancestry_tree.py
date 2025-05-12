@@ -1,14 +1,18 @@
 import numpy
+from monadic.history import data_chunk 
 
 
 
 class Ancestry:
 
     def __init__(self,
-                 target,
-                 ancestors: list | None) -> None:
-        if target is None: target = []
+                 target:    data_chunk.Chunk       | None,
+                 ancestors: list[data_chunk.Chunk] | None) -> None:
+        self.__ancestors: list[dict] = []
+
+        if target is None: return
         if ancestors is None: ancestors = []
+        
         self.__ancestors = self._resolve(target, ancestors)
 
 
@@ -16,8 +20,10 @@ class Ancestry:
     # return as list of chunks in ancestry
     def get_ancestry(self):
         if self.__ancestors is None: return []
-        return [ancestor['chunk'] for ancestor in self.__ancestors]
-
+        ancestor_chunks = [ancestor['chunk'] for ancestor in self.__ancestors]
+        next_gen = self._get_next_gen(ancestor_chunks)
+        # print(f'\033[93m{next_gen}\033[0m')
+        return next_gen
 
 
     def _distance(self,
@@ -34,6 +40,7 @@ class Ancestry:
     
 
 
+    # calculate ancestors
     def _resolve(self,
                  target,
                  ancestors: list | None) -> list[dict]:
@@ -42,6 +49,14 @@ class Ancestry:
         distances = []
         for ancestor in ancestors:
             distances.append({'distance': self._distance(target, ancestor),
-                              'chunk': ancestor})
+                              'chunk':    ancestor})
         distances.sort(key=lambda i: i['distance'])
         return distances[-3:]
+
+
+
+    def _get_next_gen(self, chunks):
+        results = []
+        for chunk in chunks:
+            results.extend(chunk.get_context())
+        return results
