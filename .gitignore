@@ -1,6 +1,7 @@
 visual/
 output*
 _misc/
+evaluation/results/
 
 # Audio
 *.mp3

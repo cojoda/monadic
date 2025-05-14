@@ -1,5 +1,6 @@
 import logging
 import pyaudio
+import time
 
 from dataclasses import dataclass
 
@@ -9,7 +10,6 @@ logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-
 
 
 # ANSI Colors
@@ -37,6 +37,14 @@ CLI = RED # client.py logs
 
 
 
+TIMESTAMP = time.strftime('%Y%m%d-%H%M%S')
+
+@dataclass
+class EvalEmbed:
+    plot_dir = f'evaluation/results/embeddings/run-{TIMESTAMP}'
+    plot_file_prefix = 'tsne'
+
+
 @dataclass
 class RecordConfig:
     chunk:    int = 1024
@@ -62,4 +70,4 @@ COMPLETION_NANO    = 'gpt-4.1-nano'
 COMPLETION_DEFAULT = COMPLETION_MINI
 EMBEDDING_DEFAULT  = 'text-embedding-3-small'
 TOP_N    = 2
-RECENT_N = 2
+RECENT_N = 3

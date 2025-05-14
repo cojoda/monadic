@@ -24,6 +24,7 @@ class Timeline:
         self.__outgoing: data_chunk.Chunk | None = None
         self.__incoming: data_chunk.Chunk | None = None
         self.__plot_counter = 0
+        self.__plot_dir = config.EvalEmbed.plot_dir
 
 
 
@@ -96,5 +97,6 @@ class Timeline:
             self.__history,
             self.__outgoing,
             self.__plot_counter,
-            title_prefix='',   # or "Timeline‑" if you like
+            title_prefix=config.EvalEmbed.plot_file_prefix,
+            plot_dir=self.__plot_dir
         )

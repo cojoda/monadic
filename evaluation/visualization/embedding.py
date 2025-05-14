@@ -20,11 +20,12 @@ def visualize(embeddings,
               method         ='tsne',
               random_state   =42,
               title          ='Embedding Visualization',
+              plot_dir       ='embedding_plots',
               annotate_points=True,
               tsne_perplexity=30.0,
               tsne_max_iter  =300,
               tsne_learning_rate: Union[float, Literal['auto']]='auto'):
-    """
+    '''
     Visualizes high-dimensional embeddings in 2D using t-SNE or PCA.
 
     Args:
@@ -50,7 +51,7 @@ def visualize(embeddings,
         tsne_learning_rate (str or float, optional): Learning rate for t-SNE.
                                                     Can be 'auto' or a float.
                                                     Defaults to 'auto'.
-    """
+    '''
     if embeddings is None or len(embeddings) == 0:
         logger.error('Input embeddings list is empty or None.')
         return
@@ -162,18 +163,15 @@ def visualize(embeddings,
                 logger.warning(f'Number of labels ({len(labels)}) does not match number of plotted points '
                       f'({len(x_coords)}). Annotations will be skipped.')
 
-        # --- MODIFICATION: Save instead of show ---
-        plot_dir = 'embedding_plots'
+        # Save
         if not os.path.exists(plot_dir):
             os.makedirs(plot_dir)
         
-        # Create a somewhat unique filename
-        safe_title = "".join(c if c.isalnum() else "_" for c in title)
-        timestamp = time.strftime('%Y%m%d-%H%M%S')
-        filename = os.path.join(plot_dir, f'{safe_title}_{timestamp}.png')
+        filename = f'{title}.png'
+        filepath = os.path.join(plot_dir, filename)
         
-        matplotlib.pyplot.savefig(filename)
-        logger.info(f'Plot saved to {filename}')
+        matplotlib.pyplot.savefig(filepath)
+        logger.info(f'Plot saved to {filepath}')
         matplotlib.pyplot.close() # Close the figure object to free memory
 
     except Exception as e:

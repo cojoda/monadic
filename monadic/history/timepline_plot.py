@@ -16,7 +16,8 @@ def plot(
     outgoing: Optional['data_chunk.Chunk'],
     counter:  int,
     *,
-    title_prefix: str = '',
+    title_prefix: str = 'tsne',
+    plot_dir: str = 'embedding_plots'
 ) -> int:
     
     '''
@@ -54,7 +55,8 @@ def plot(
     embedding.visualize(
         embeddings,
         labels=labels,
-        title=f'{title_prefix}{counter}',
+        title=f'{title_prefix}-{counter}',
+        plot_dir=plot_dir,
         tsne_perplexity=max(5.0, min(30.0, len(embeddings) - 1)),
         tsne_max_iter=1_000,
     )
