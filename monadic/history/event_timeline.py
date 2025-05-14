@@ -2,6 +2,7 @@ import logging
 
 from . import data_chunk
 from . import chunk_ops
+from . import timepline_plot
 
 from monadic.context import context_manager
 from monadic import interactions
@@ -90,54 +91,10 @@ class Timeline:
         return self.__history[:self.__id]
 
 
-
-    def visualize(self):
-        if not self.__history:
-            logger.info(f'{config.HIS}Timeline: No history to visualize.{config.CLR}')
-            return
-        history = self.__history
-        outgoing = self.__outgoing
-        if outgoing:
-            context_ids = [chunk.get_id() for chunk in outgoing.get_context()] + [outgoing.get_id()]
-            history += [outgoing]
-        else:
-            context_ids = []
-    
-        embeddings_to_plot = []
-        labels_to_plot = []
-
-        for i, chunk in enumerate(history):
-            embed = chunk.get_embed() # Assuming get_embed() returns the embedding vector
-            if embed is not None and len(embed) > 0:
-                spec = ''
-                if i in context_ids:
-                    spec = f'id:{i},{chunk.get_content()}'
-                embeddings_to_plot.append(embed)
-                # labels_to_plot.append(f"{spec}id:{chunk.get_id()}:{chunk.get_content()[0:30]}...") # Example label
-                labels_to_plot.append(f"{spec}") # Example label
-            else:
-                logger.info(f'{config.HIS}Skipping chunk {chunk.get_id()} due to missing/empty embedding.{config.CLR}')
-        
-        if embeddings_to_plot:
-            self.__plot_counter += 1
-            plot_title = f"{self.__plot_counter}"
-            
-            # Adjust perplexity based on number of actual points being plotted
-            num_points = len(embeddings_to_plot)
-            perplexity_val = 30.0
-            if num_points <=1:
-                # Visualizer handles single point, but TSNE specific params are moot
-                pass
-            elif num_points <= perplexity_val:
-                 perplexity_val = max(1.0, num_points -1.0)
-
-
-            embedding.visualize.visualize_embeddings(
-                embeddings_to_plot,
-                labels=labels_to_plot,
-                title=plot_title,
-                tsne_perplexity=perplexity_val, # Dynamic perplexity
-                tsne_max_iter=1000# tsne_max_iter can be kept at default or adjusted
-            )
-        else:
-            logger.info(f'{config.HIS}Timeline: No valid embeddings found in current history to visualize.{config.CLR}')
+    def visualize(self) -> None:
+        self.__plot_counter = timepline_plot.plot(
+            self.__history,
+            self.__outgoing,
+            self.__plot_counter,
+            title_prefix='',   # or "Timeline‑" if you like
+        )

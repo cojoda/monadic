@@ -1,30 +1,34 @@
-# embedding_visualizer.py
-import matplotlib
-matplotlib.use('Agg') # <<< ADD THIS LINE AT THE VERY TOP
-import numpy as np
+import logging
+import matplotlib.pyplot
+import numpy
+import os
+import time
+import traceback
+
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
-import traceback
-import os # For path joining
-import time # For unique filenames
+from typing import Union, Literal
+
+
+
+logger = logging.getLogger(__name__)
 
 
 
 def visualize(embeddings,
-              labels=None,
-              method='tsne',
-              random_state=42,
-              title='Embedding Visualization',
+              labels         =None,
+              method         ='tsne',
+              random_state   =42,
+              title          ='Embedding Visualization',
               annotate_points=True,
               tsne_perplexity=30.0,
-              tsne_max_iter=300,
-              tsne_learning_rate='auto'):
+              tsne_max_iter  =300,
+              tsne_learning_rate: Union[float, Literal['auto']]='auto'):
     """
     Visualizes high-dimensional embeddings in 2D using t-SNE or PCA.
 
     Args:
-        embeddings (list or np.array): A list or numpy array of embeddings.
+        embeddings (list or numpy.array): A list or numpy array of embeddings.
                                        Each embedding should be a list or 1D array of numbers.
         labels (list, optional): A list of labels corresponding to each embedding.
                                  If provided, points on the plot will be annotated.
@@ -47,40 +51,38 @@ def visualize(embeddings,
                                                     Can be 'auto' or a float.
                                                     Defaults to 'auto'.
     """
- # Initial check if the input list itself is None or empty
     if embeddings is None or len(embeddings) == 0:
-        print("Error: Input embeddings list is empty or None.")
+        logger.error('Input embeddings list is empty or None.')
         return
 
 
     try:
         # Convert embeddings to numpy array
-        embedding_array = np.array(embeddings)
+        embedding_array = numpy.array(embeddings)
         if embedding_array.ndim == 1: # Handle case of a single embedding
-             print("Warning: Only one embedding provided. Visualization might not be meaningful.")
+             logger.warning('Only one embedding provided. Visualization might not be meaningful.')
              # For a single point, we can't really do dimensionality reduction in a typical sense.
              # We'll plot it at (0,0) if it's reduced, or try to plot its first two dimensions.
              if embedding_array.shape[0] >= 2:
-                 reduced_embeddings = np.array([[embedding_array[0], embedding_array[1]]])
+                 reduced_embeddings = numpy.array([[embedding_array[0], embedding_array[1]]])
              else: # Not enough dimensions to plot directly
-                 reduced_embeddings = np.array([[0,0]]) # fallback
+                 reduced_embeddings = numpy.array([[0,0]]) # fallback
         elif embedding_array.shape[0] < 2 and method.lower() == 'tsne':
-            print(f"Warning: t-SNE requires at least 2 samples, but got {embedding_array.shape[0]}. Using PCA instead or plotting directly if 2D.")
+            logger.warning(f't-SNE requires at least 2 samples, but got {embedding_array.shape[0]}. Using PCA instead or plotting directly if 2D.')
             if embedding_array.shape[1] == 2: # Already 2D
                  reduced_embeddings = embedding_array
             elif embedding_array.shape[0] ==1 and embedding_array.shape[1] > 2 : # one sample many features
-                 reduced_embeddings = np.array([[embedding_array[0,0], embedding_array[0,1]]]) # Plot first two components
+                 reduced_embeddings = numpy.array([[embedding_array[0,0], embedding_array[0,1]]]) # Plot first two components
             else: # Fallback for single high-D embedding
-                 reduced_embeddings = np.array([[0,0]])
+                 reduced_embeddings = numpy.array([[0,0]])
         elif embedding_array.shape[1] < 2:
-            print("Error: Embeddings must have at least 2 dimensions for 2D visualization.")
+            logger.error('Embeddings must have at least 2 dimensions for 2D visualization.')
             return
         elif embedding_array.shape[0] < embedding_array.shape[1] and method.lower() == 'tsne' and embedding_array.shape[0] <= tsne_perplexity:
              actual_perplexity = max(5.0, embedding_array.shape[0] - 1.0)
-             print(f"Warning: Perplexity ({tsne_perplexity}) is too high for the number of samples ({embedding_array.shape[0]}). "
-                   f"Adjusting perplexity to {actual_perplexity}.")
+             logger.warning(f'Perplexity ({tsne_perplexity}) is too high for the number of samples ({embedding_array.shape[0]}). '
+                   f'Adjusting perplexity to {actual_perplexity}.')
              tsne_perplexity = actual_perplexity
-
 
         # Dimensionality Reduction
         if embedding_array.shape[0] > 1 and embedding_array.shape[1] > 2 : # Only reduce if more than 1 sample and more than 2D
@@ -97,89 +99,85 @@ def visualize(embeddings,
                 pca = PCA(n_components=2, random_state=random_state)
                 reduced_embeddings = pca.fit_transform(embedding_array)
             else:
-                print(f"Error: Unknown method '{method}'. Choose 'tsne' or 'pca'.")
+                logger.error(f"Unknown method '{method}'. Choose 'tsne' or 'pca'.")
                 return
         elif embedding_array.shape[1] == 2: # Already 2D
             reduced_embeddings = embedding_array
         elif embedding_array.shape[0] == 1 and embedding_array.shape[1] >=2: # Single sample, plot its first two dimensions
-             reduced_embeddings = np.array([[embedding_array[0,0], embedding_array[0,1]]])
+             reduced_embeddings = numpy.array([[embedding_array[0,0], embedding_array[0,1]]])
         else: # Fallback for single 1D embedding or other edge cases
-            print("Warning: Cannot perform standard dimensionality reduction. Plotting as is or with fallback.")
+            logger.warning('Cannot perform standard dimensionality reduction. Plotting as is or with fallback.')
             if embedding_array.ndim == 1 and embedding_array.shape[0] >= 2:
-                reduced_embeddings = np.array([[embedding_array[0], embedding_array[1]]])
+                reduced_embeddings = numpy.array([[embedding_array[0], embedding_array[1]]])
             elif embedding_array.ndim == 2 and embedding_array.shape[1] == 1: # Multiple 1D embeddings
                 # Create a synthetic second dimension (e.g., index or zeros)
-                reduced_embeddings = np.hstack((embedding_array, np.arange(embedding_array.shape[0]).reshape(-1,1)))
+                reduced_embeddings = numpy.hstack((embedding_array, numpy.arange(embedding_array.shape[0]).reshape(-1,1)))
             else: # True fallback
-                reduced_embeddings = np.array([[0,0]]) if embedding_array.ndim == 1 else np.zeros((embedding_array.shape[0], 2))
-
+                reduced_embeddings = numpy.array([[0,0]]) if embedding_array.ndim == 1 else numpy.zeros((embedding_array.shape[0], 2))
 
     except Exception as e:
-        print(f"An error occurred during dimensionality reduction: {e}")
+        logger.error(f'An error occurred during dimensionality reduction: {e}')
         return
 
     # Plotting
-    # embedding_visualizer.py
-
-    # Plotting
     try:
-        plt.figure(figsize=(12, 10))
+        matplotlib.pyplot.figure(figsize=(12, 10))
 
         if reduced_embeddings.ndim == 1:
             if reduced_embeddings.shape[0] >= 2:
-                 print("Plotting 1D reduced data against indices.")
+                 logger.info('Plotting 1D reduced data against indices.')
                  x_coords = reduced_embeddings
-                 y_coords = np.arange(reduced_embeddings.shape[0])
+                 y_coords = numpy.arange(reduced_embeddings.shape[0])
             elif reduced_embeddings.shape[0] == 1:
-                 x_coords = np.array([reduced_embeddings[0]])
-                 y_coords = np.array([0.0])
+                 x_coords = numpy.array([reduced_embeddings[0]])
+                 y_coords = numpy.array([0.0])
             else:
-                 print("Error: Reduced embeddings are empty after 1D check.")
-                 plt.close() # Close the figure if error
+                 logger.error('Reduced embeddings are empty after 1D check.')
+                 matplotlib.pyplot.close() # Close the figure if error
                  return
         elif reduced_embeddings.shape[1] == 1:
-            print("Plotting 1D reduced data (single column) against indices.")
+            logger.info('Plotting 1D reduced data (single column) against indices.')
             x_coords = reduced_embeddings[:, 0]
-            y_coords = np.arange(reduced_embeddings.shape[0])
+            y_coords = numpy.arange(reduced_embeddings.shape[0])
         elif reduced_embeddings.shape[1] >= 2:
             x_coords = reduced_embeddings[:, 0]
             y_coords = reduced_embeddings[:, 1]
         else:
-            print("Error: Reduced embeddings do not have 1 or 2 dimensions for plotting.")
-            plt.close() # Close the figure if error
+            logger.error('Reduced embeddings do not have 1 or 2 dimensions for plotting.')
+            matplotlib.pyplot.close() # Close the figure if error
             return
 
-        plt.scatter(x_coords, y_coords, alpha=0.7)
-        plt.title(title, fontsize=16)
-        plt.xlabel("Dimension 1", fontsize=12)
-        plt.ylabel("Dimension 2", fontsize=12)
-        plt.grid(True, linestyle='--', alpha=0.6)
+        matplotlib.pyplot.scatter(x_coords, y_coords, alpha=0.7)
+        matplotlib.pyplot.title(title, fontsize=16)
+        matplotlib.pyplot.xlabel('Dimension 1', fontsize=12)
+        matplotlib.pyplot.ylabel('Dimension 2', fontsize=12)
+        matplotlib.pyplot.grid(True, linestyle='--', alpha=0.6)
 
         if labels and annotate_points:
             if len(labels) == len(x_coords):
                 for i, label in enumerate(labels):
-                    plt.annotate(label, (x_coords[i], y_coords[i]),
-                                 textcoords="offset points", xytext=(5,5), ha='left', fontsize=9)
+                    matplotlib.pyplot.annotate(label, (x_coords[i], y_coords[i]),
+                                 textcoords='offset points', xytext=(5,5), ha='left', fontsize=9)
             else:
-                print(f"Warning: Number of labels ({len(labels)}) does not match number of plotted points "
-                      f"({len(x_coords)}). Annotations will be skipped.")
+                logger.warning(f'Number of labels ({len(labels)}) does not match number of plotted points '
+                      f'({len(x_coords)}). Annotations will be skipped.')
 
         # --- MODIFICATION: Save instead of show ---
-        plot_dir = "embedding_plots"
+        plot_dir = 'embedding_plots'
         if not os.path.exists(plot_dir):
             os.makedirs(plot_dir)
         
         # Create a somewhat unique filename
         safe_title = "".join(c if c.isalnum() else "_" for c in title)
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = os.path.join(plot_dir, f"{safe_title}_{timestamp}.png")
+        timestamp = time.strftime('%Y%m%d-%H%M%S')
+        filename = os.path.join(plot_dir, f'{safe_title}_{timestamp}.png')
         
-        plt.savefig(filename)
-        print(f"Plot saved to {filename}")
-        plt.close() # Close the figure object to free memory
+        matplotlib.pyplot.savefig(filename)
+        logger.info(f'Plot saved to {filename}')
+        matplotlib.pyplot.close() # Close the figure object to free memory
 
     except Exception as e:
-        print(f"An error occurred during plotting: {e}")
+        logger.error(f'An error occurred during plotting: {e}')
         traceback.print_exc()
-        if plt.gcf().get_axes(): # Check if a figure is active
-            plt.close() # Attempt to close it
+        if matplotlib.pyplot.gcf().get_axes(): # Check if a figure is active
+            matplotlib.pyplot.close() # Attempt to close it
