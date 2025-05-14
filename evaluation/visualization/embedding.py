@@ -80,7 +80,7 @@ def visualize(embeddings,
             return
         elif embedding_array.shape[0] < embedding_array.shape[1] and method.lower() == 'tsne' and embedding_array.shape[0] <= tsne_perplexity:
              actual_perplexity = max(5.0, embedding_array.shape[0] - 1.0)
-             logger.warning(f'Perplexity ({tsne_perplexity}) is too high for the number of samples ({embedding_array.shape[0]}). '
+             logger.info(f'Perplexity ({tsne_perplexity}) is too high for the number of samples ({embedding_array.shape[0]}). '
                    f'Adjusting perplexity to {actual_perplexity}.')
              tsne_perplexity = actual_perplexity
 
