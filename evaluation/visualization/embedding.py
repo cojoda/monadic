@@ -69,7 +69,7 @@ def visualize(embeddings,
              else: # Not enough dimensions to plot directly
                  reduced_embeddings = numpy.array([[0,0]]) # fallback
         elif embedding_array.shape[0] < 2 and method.lower() == 'tsne':
-            logger.warning(f't-SNE requires at least 2 samples, but got {embedding_array.shape[0]}. Using PCA instead or plotting directly if 2D.')
+            logger.info(f't-SNE requires at least 2 samples, but got {embedding_array.shape[0]}. Using PCA instead or plotting directly if 2D.')
             if embedding_array.shape[1] == 2: # Already 2D
                  reduced_embeddings = embedding_array
             elif embedding_array.shape[0] ==1 and embedding_array.shape[1] > 2 : # one sample many features
@@ -117,7 +117,7 @@ def visualize(embeddings,
                 reduced_embeddings = numpy.array([[0,0]]) if embedding_array.ndim == 1 else numpy.zeros((embedding_array.shape[0], 2))
 
     except Exception as e:
-        logger.error(f'An error occurred during dimensionality reduction: {e}')
+        logger.info(f'An error occurred during dimensionality reduction: {e}')
         return
 
     # Plotting
