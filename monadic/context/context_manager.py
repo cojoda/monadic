@@ -25,7 +25,7 @@ class Context:
         if history is None: history = []
 
         self.__id       = chunk.get_id()
-        self.__window   = window.DynamicWindow(history, self.__id, 2)
+        self.__window   = window.DynamicWindow(history, self.__id, config.TOP_N)
         self.__ancestry = ancestry_tree.Ancestry(chunk, history)
         self.__log_init()
         

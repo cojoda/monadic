@@ -42,3 +42,14 @@ def transcriptions(filename):
             model='gpt-4o-transcribe',
             file =audio_file
         )
+
+
+def speech(input):
+    with services.openai_client.audio.speech.with_streaming_response.create(
+        model='gpt-4o-mini-tts',
+        voice='coral',
+        input=input,
+        # instructions='Speak like you are speaking to your best friend.',
+        response_format='wav',
+    ) as responses:
+        responses.stream_to_file('data/audio/recording/input.wav')

@@ -33,6 +33,7 @@ class Timeline:
                      content: str | None) -> None:
         if role is None: role = ''
         if content is None: content = ''
+        # Hack to allow newlines from terminal
         content = content.replace('\\#', '\n\n')
         # Get outgoing context before chunking to prevent it from contexting itself
         self.__outgoing = data_chunk.Chunk(role, content.replace('\\#', ' '), len(self.__history))
@@ -43,7 +44,6 @@ class Timeline:
 
 
 
-
     def add_incoming(self,
                      role:    str | None,
                      content: str | None) -> None:
@@ -51,7 +51,6 @@ class Timeline:
         if content is None: content = ''
 
         self.add_history(role, content)
-
 
 
 
@@ -66,8 +65,8 @@ class Timeline:
         chunked_embeds_response = interactions.embeddings(chunked_contents)
         chunked_embeds = [chunk.embedding for chunk in chunked_embeds_response.data]
 
-        # self.__id = len(self.__history)
         for chunk_content, chunk_embed in zip(chunked_contents, chunked_embeds):
+            self.__id = len(self.__history)
             chunk = data_chunk.Chunk(role, chunk_content, len(self.__history),chunk_embed)
             context = context_manager.Context(chunk, self.get_residing())
             chunk.set_context(context)
@@ -90,6 +89,7 @@ class Timeline:
     # Returns pending chunks
     def get_residing(self) -> list[data_chunk.Chunk]:
         return self.__history[:self.__id]
+
 
 
     def visualize(self) -> None:

@@ -1,6 +1,8 @@
 import numpy
 from monadic.history import data_chunk 
 
+from monadic.config import RECENT_N
+
 
 
 class Ancestry:
@@ -22,7 +24,7 @@ class Ancestry:
         if self.__ancestors is None: return []
         ancestor_chunks = [ancestor['chunk'] for ancestor in self.__ancestors]
         next_gen = self._get_next_gen(ancestor_chunks)
-        return next_gen
+        return next_gen + ancestor_chunks
 
 
 
@@ -51,7 +53,7 @@ class Ancestry:
             distances.append({'distance': self._distance(target, ancestor),
                               'chunk':    ancestor})
         distances.sort(key=lambda i: i['distance'])
-        return distances[-2:]
+        return distances[-1*(RECENT_N):]
 
 
 
