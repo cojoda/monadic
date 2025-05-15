@@ -13,13 +13,13 @@ logging.basicConfig(
 
 
 # ANSI Colors
-YEL = '\033[93m'
-BLU = '\033[94m'
-RED = '\033[31m'
-GRN = '\033[32m' 
-CYN = '\033[36m'
 MAG = '\033[35m'
-GRY = '\033[90m' 
+BLU = '\033[94m'
+CYN = '\033[36m'
+GRN = '\033[32m' 
+YEL = '\033[93m'
+RED = '\033[31m'
+GRY = '\033[90m'
 
 # Reset Color
 CLR = '\033[0m'
@@ -39,10 +39,13 @@ CLI = RED # client.py logs
 
 TIMESTAMP = time.strftime('%Y%m%d-%H%M%S')
 
+
+
 @dataclass
 class EvalEmbed:
     plot_dir = f'evaluation/results/embeddings/run-{TIMESTAMP}'
     plot_file_prefix = 'tsne'
+
 
 
 @dataclass
@@ -69,5 +72,5 @@ COMPLETION_MINI    = 'gpt-4.1-mini'
 COMPLETION_NANO    = 'gpt-4.1-nano'
 COMPLETION_DEFAULT = COMPLETION_MINI
 EMBEDDING_DEFAULT  = 'text-embedding-3-small'
-TOP_N    = 2
+TOP_N    = 0
 RECENT_N = 3
