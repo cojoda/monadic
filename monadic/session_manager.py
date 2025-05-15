@@ -3,7 +3,7 @@ import logging
 from . import interactions
 from . import config
 
-from monadic.history import event_timeline
+from monadic.history import timeline_manager
 
 
 
@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 
-class Interact:
+class Session:
 
     def __init__(self) -> None:
         self.input_tokens  = 0
         self.output_tokens = 0
-        self.timeline      = event_timeline.Timeline()
+        self.timeline      = timeline_manager.Timeline()
 
 
 

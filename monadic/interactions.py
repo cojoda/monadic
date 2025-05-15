@@ -45,11 +45,12 @@ def transcriptions(filename):
 
 
 def speech(input):
+    # instructions = """Accent/Affect: Warm, refined, and gently instructive, reminiscent of a friendly art instructor.\n\nTone: Calm, encouraging, and articulate, clearly describing each step with patience.\n\nPacing: Slow and deliberate, pausing often to allow the listener to follow instructions comfortably.\n\nEmotion: Cheerful, supportive, and pleasantly enthusiastic; convey genuine enjoyment and appreciation of art.\n\nPronunciation: Clearly articulate artistic terminology (e.g., \"brushstrokes,\" \"landscape,\" \"palette\") with gentle emphasis.\n\nPersonality Affect: Friendly and approachable with a hint of sophistication; speak confidently and reassuringly, guiding users through each painting step patiently and warmly."""
     with services.openai_client.audio.speech.with_streaming_response.create(
         model='gpt-4o-mini-tts',
         voice='coral',
         input=input,
-        # instructions='Speak like you are speaking to your best friend.',
+        # instructions=instructions,
         response_format='wav',
     ) as responses:
         responses.stream_to_file('data/audio/recording/input.wav')

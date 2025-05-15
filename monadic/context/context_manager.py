@@ -1,10 +1,10 @@
 import itertools
 import logging
 
-from monadic import config
-from monadic.history import data_chunk 
-
 from . import ancestry_tree, window
+
+from monadic import config
+from monadic.data import data_chunk 
 
 
 

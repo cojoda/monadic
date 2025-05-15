@@ -1,9 +1,9 @@
 from monadic import config
+
 import os
 import sys
 
-
-from monadic import interactive_session
+from monadic import session_manager
 from monadic.audio import audio_recorder, audio_player
 from monadic.interactions import transcriptions, speech
 
@@ -107,7 +107,7 @@ def toggle_audit():
 
 
 def start():
-    conversation = interactive_session.Interact()
+    session = session_manager.Session()
     speak = False
 
     # CLI arg supplied input file?
@@ -149,14 +149,14 @@ def start():
             toggle_audit()
             continue
         elif text in ('clear'):
-            conversation = interactive_session.Interact()
+            session = session_manager.Session()
             clear_screen()
             continue
         elif text == 'exit':
             return
             
         # Querry LLM
-        response = conversation.respond(text)
+        response = session.respond(text)
         skip_lines(1)
         print_color(response, config.BLU)
         skip_lines(2)

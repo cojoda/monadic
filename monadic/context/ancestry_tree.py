@@ -1,6 +1,6 @@
 import numpy
-from monadic.history import data_chunk 
 
+from monadic.data import data_chunk 
 from monadic.config import RECENT_N
 
 

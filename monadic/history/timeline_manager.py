@@ -1,14 +1,12 @@
 import logging
 
-from . import data_chunk
-from . import chunk_ops
-from . import timepline_plot
-
-from monadic.context import context_manager
-from monadic import interactions
-from evaluation.visualization import embedding
+from . import timeline_plot
 
 from monadic import config
+from monadic import interactions
+from monadic.context import context_manager
+from monadic.data import data_chunk
+from monadic.data import chunk_ops
 
 
 
@@ -93,10 +91,10 @@ class Timeline:
 
 
     def visualize(self) -> None:
-        self.__plot_counter = timepline_plot.plot(
+        self.__plot_counter = timeline_plot.plot(
             self.__history,
             self.__outgoing,
             self.__plot_counter,
             title_prefix=config.EvalEmbed.plot_file_prefix,
-            plot_dir=self.__plot_dir
+            plot_dir    =self.__plot_dir
         )

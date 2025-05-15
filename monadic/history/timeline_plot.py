@@ -1,9 +1,8 @@
 import logging
 from typing import Sequence, List, Optional
-
 from evaluation.visualization import embedding
 
-from . import data_chunk
+from monadic.data import data_chunk
 
 
 
