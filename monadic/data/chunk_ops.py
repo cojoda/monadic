@@ -10,15 +10,15 @@ def merge(chunks: list[Chunk] | None,
     if chunks is None or len(chunks) == 0: return None
     if marker is None: marker = ''
 
-    role = chunks[0].get_role()
+    role = chunks[0].role
     contents = []
     contexts = []
     for chunk in chunks:
-        if chunk.get_role() != role: return Chunk(role, marker.join(contents))
-        contents.append(chunk.get_content())
-        contexts.extend(chunk.get_context())
+        if chunk.role != role: return Chunk(role, marker.join(contents))
+        contents.append(chunk.context)
+        contexts.extend(chunk.context)
     merged = Chunk(role, marker.join(contents))
-    merged.set_context(contexts)
+    merged.context = contexts
     return merged
 
 
@@ -29,13 +29,13 @@ def cut(chunks: list[Chunk] | None,
         stop:   int         | None) ->list:
     
     if chunks is None or start is None or stop is None: return [] 
-
+    
     if start <= len(chunks): return []
     if stop < len(chunks): stop = len(chunks)
-    role = chunks[start].get_role()
+    role = chunks[start].role
     result = []
     for chunk in chunks[start:stop]:
-        if chunk.get_role() != role: return result
+        if chunk.role != role: return result
         result.append(chunk)
     return result
 

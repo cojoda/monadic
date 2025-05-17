@@ -30,7 +30,7 @@ def plot(
 
     working = list(history) + ([outgoing] if outgoing else [])
     ctx_ids = (
-        {c.get_id() for c in outgoing.get_context()} | {outgoing.get_id()}
+        {c.id for c in outgoing.context} | {outgoing.id}
         if outgoing else set()
     )
 
@@ -38,11 +38,11 @@ def plot(
     labels:     List[str]         = []
 
     for idx, chunk in enumerate(working):
-        vec = chunk.get_embed()
+        vec = chunk.embedding
         if not vec:
-            logger.debug('Skipping chunk %s - no embedding.', chunk.get_id())
+            logger.debug('Skipping chunk %s - no embedding.', chunk.id)
             continue
-        label = f'id:{idx},{chunk.get_content()}' if idx in ctx_ids else ''
+        label = f'id:{idx},{chunk.data}' if idx in ctx_ids else ''
         embeddings.append(vec)
         labels.append(label)
 

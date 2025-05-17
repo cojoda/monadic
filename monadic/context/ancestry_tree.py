@@ -31,8 +31,8 @@ class Ancestry:
     def _distance(self,
                   chunk_1,
                   chunk_2) -> float:
-        embed_1 = chunk_1.get_embed()
-        embed_2 = chunk_2.get_embed()
+        embed_1 = chunk_1.embedding
+        embed_2 = chunk_2.embedding
         v1 = numpy.array(embed_1)
         v2 = numpy.array(embed_2)
         dot_product = numpy.dot(v1, v2)
@@ -60,5 +60,5 @@ class Ancestry:
     def _get_next_gen(self, chunks):
         results = []
         for chunk in chunks:
-            results.extend(chunk.get_context())
+            results.extend(chunk.context)
         return results

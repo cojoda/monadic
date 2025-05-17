@@ -14,57 +14,96 @@ logger = logging.getLogger(__name__)
 class Chunk:
     
     def __init__(self,
-                 role:    str,
-                 content: str,
-                 id:      int=-1,
-                 embed:   list[float]|None=None) -> None:
-        self.__id:      int         = id
-        self.__role:    str         = role
-        self.__content: str         = content
+                 role,
+                 data,
+                 id   =-1,
+                 embed=None):
+        self.role = role
+        self.data = data
+        self.id   = id
         
-        self.__embed: list[float] | None = embed
-        self.__context: list[Chunk] = []
+        self.embed   = embed
+        self.context = []
         if embed is None:
-            self.__embed = interactions.embeddings([content]).data[0].embedding
+            self.embed = interactions.embeddings([data]).data[0].embedding
         self.__log_init()
-    
-
-    # Getters
-
-    def get_form(self) -> dict[str,str]:
-        return {'role': self.__role, 'content': self.__content}
 
 
-    def get_id(self) -> int:
-        return self.__id
 
+    # role
 
-    def get_role(self) -> str:
+    @property
+    def role(self):
         return self.__role
 
+    @role.setter
+    def role(self, role: str):
+        if not role:
+            raise ValueError('role expects str')
+        self.__role = role
+    
 
-    def get_content(self) -> str:
-        return self.__content
+
+    # id
+
+    @property
+    def id(self):
+        return self.__id
+    
+    @id.setter
+    def id(self, id):
+        if not id:
+            raise ValueError('id expects int')
+        self.__id = id
 
 
-    def get_embed(self) -> list[float]:
-        if self.__embed is None: return []
+
+    # data
+
+    @property
+    def data(self):
+        return self.__data
+
+    @data.setter
+    def data(self, data):
+        if not data:
+            raise ValueError('data expects data')
+        self.__data = data
+
+
+
+    # embedding
+
+    @property
+    def embedding(self):
         return self.__embed
+    
+    @embedding.setter
+    def embedding(self, embedding):
+        if not embedding:
+            raise ValueError('embedding expects embedding')
+        self.__embed = embedding
 
 
-    def get_context(self) -> list[Chunk]:
+
+    # context
+
+    @property
+    def context(self):
         return self.__context
-
-
-   # Setters
-
-    def set_id(self, index) -> None:
-        self.__id = index
-
-
-    def set_context(self, context) -> None:
+    
+    @context.setter
+    def context(self, context):
+        if not context:
+            raise ValueError('context expects context')
         self.__context = context
 
 
+    # logger
+
     def __log_init(self):
-        logger.info(f'{config.HIS}\nid: {self.__id}\ncontent: {self.__content}{config.CLR}')
+        logger.info(f'{config.HIS}\nid: {self.id}\ncontent: {self.data}{config.CLR}')
+
+
+    def get_form(self):
+        return {'role': self.role, 'content': self.data}
