@@ -1,7 +1,5 @@
 import logging
 
-# from monadic.context.context_manager import Context
-
 
 
 logger = logging.getLogger(__name__)
