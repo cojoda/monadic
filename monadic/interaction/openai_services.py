@@ -6,9 +6,7 @@ from monadic.singleton import singleton
 
 
 
-@singleton
-def openai_client():
- return openai.OpenAI()
+openai_client = singleton(openai.OpenAI)()
 
 
 
@@ -49,6 +47,7 @@ def transcriptions(filename):
             model='gpt-4o-transcribe',
             file =audio_file
         )
+
 
 
 def speech(input):
