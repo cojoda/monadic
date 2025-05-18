@@ -1,6 +1,6 @@
 import pytest
 
-from monadic.context.context_manager import Context
+from monadic.context.context_ops import Context
 
 
 

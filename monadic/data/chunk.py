@@ -1,4 +1,11 @@
-from monadic.context.context_manager import Context
+import logging
+
+# from monadic.context.context_manager import Context
+
+
+
+logger = logging.getLogger(__name__)
+
 
 
 class Chunk:
@@ -27,7 +34,7 @@ class Chunk:
         if not role:
             raise ValueError('role cannot be empty or None')
         if not isinstance(role, str):
-            raise ValueError(f"Expected a string for 'role', got {type(role).__name__}")
+            raise TypeError(f"Expected a string for 'role', got {type(role).__name__}")
         self.__role = role
 
 
@@ -42,7 +49,7 @@ class Chunk:
         if not data:
             raise ValueError('data cannot be empty or None')
         if not isinstance(data, str):
-            raise ValueError(f"Expected a string for 'data', got {type(data).__name__}")
+            raise TypeError(f"Expected a string for 'data', got {type(data).__name__}")
         self.__data = data
 
     
@@ -55,9 +62,9 @@ class Chunk:
     @uid.setter
     def uid(self, uid):
         if uid is None:
-            raise ValueError('id cannot be empty or None')
+            raise ValueError("'id' cannot be None")
         if not isinstance(uid, int):
-            raise ValueError(f"Expected an int for 'uid', got {type(uid).__name__}")
+            raise TypeError(f"Expected an int for 'uid', got {type(uid).__name__}")
         self.__uid = uid
 
     
@@ -72,7 +79,7 @@ class Chunk:
         # if not context:
         #     raise ValueError('context cannot be empty or None')
         # if not isinstance(context, Context):
-        #     raise ValueError(f"Expected a Context instance for 'context', got {type(context).__name__}")
+        #     raise TypeError(f"Expected a Context instance for 'context', got {type(context).__name__}")
         self.__context = context
 
 
@@ -82,3 +89,7 @@ class Chunk:
             'role': self.role,
             'content': self.data
         }
+    
+
+    # def __log_init(self):
+    #     logger.info(f'{config.HIS}\nid: {self.id}\ncontent: {self.data}{config.CLR}')

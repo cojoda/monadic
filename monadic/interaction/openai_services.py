@@ -1,7 +1,7 @@
 import logging
 
-from . import services
-from . import config
+from monadic import services
+from monadic import config
 
 
 

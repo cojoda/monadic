@@ -1,12 +1,6 @@
 import logging
 
-from . import timeline_plot
-
-from monadic import config
-from monadic import interactions
-from monadic.context import context_manager
-from monadic.data.data_chunk import Chunk
-from monadic.data import chunk_ops
+from monadic.data.chunk import Chunk
 
 
 
@@ -15,86 +9,45 @@ logger = logging.getLogger(__name__)
 
 
 class Timeline:
+    def __init__(self):
+        self.history = []
+
+
+    # history
+
+    @property
+    def history(self):
+        return self.__history
     
-    def __init__(self) -> None:
-        self.__id:       int          = 0
-        self.__history:  list[Chunk]  = []
-        self.__outgoing: Chunk | None = None
-        self.__incoming: Chunk | None = None
-        self.__plot_counter           = 0
-        self.__plot_dir               = config.EvalEmbed.plot_dir
+    @history.setter
+    def history(self, history):
+        if history is None:
+            raise ValueError("'history' cannot be None")
+        if not isinstance(history, list):
+            raise TypeError(f"Expected a 'list' for 'history', got '{type(history).__name__}'")
+        self.__history = history
 
 
 
-    def add_outgoing(self,
-                     role:    str | None,
-                     content: str | None) -> None:
-        if role is None: role = ''
-        if content is None: content = ''
-        # Hack to allow newlines from terminal
-        content = content.replace('\\#', '\n\n')
-        # Get outgoing context before chunking to prevent it from contexting itself
-        self.__outgoing = Chunk(role, content.replace('\\#', ' '), len(self.__history))
-        context = context_manager.Context(self.__outgoing, self.__history)
-        self.__outgoing.context = context
-        self.visualize()
-        self.add_history(role, content)
+    def append(self, chunk):
+        if chunk is None: return
+        if not isinstance(chunk, Chunk):
+            raise TypeError(f"Expected a 'Chunk' instance for 'chunk', got '{type(chunk).__name__}'")
+        self.history.append(chunk)
 
 
 
-    def add_incoming(self,
-                     role:    str | None,
-                     content: str | None) -> None:
-        if role is None: role = ''
-        if content is None: content = ''
-
-        self.add_history(role, content)
+    def extend(self, chunks):
+        if chunks is None: return
+        if not isinstance(chunks, list):
+            raise TypeError(f"Expected a 'list' for 'chunks', got '{type(chunks).__name__}'")
+        self.history.extend(chunks)
 
 
-
-    def add_history(self,
-                    role:    str | None,
-                    content: str | None) -> None:
-        if role is None: role = ''
-        if content is None: content = ''
-
-        chunked_contents = chunk_ops.chunker(content)
-
-        chunked_embeds_response = interactions.embeddings(chunked_contents)
-        chunked_embeds = [chunk.embedding for chunk in chunked_embeds_response.data]
-
-        for chunk_content, chunk_embed in zip(chunked_contents, chunked_embeds):
-            self.__id = len(self.__history)
-            chunk = Chunk(role, chunk_content, len(self.__history),chunk_embed)
-            context = context_manager.Context(chunk, self.get_residing())
-            chunk.context = context
-            self.__history.append(chunk)
-        # self.visualize()
-
-
-
-    # Fetches and returns context history of __last
-    def get_form(self) -> list:
-        if len(self.__history) == 0 or self.__outgoing is None: return []
-
-        context = self.__outgoing.context
-        if len(context) == 0:
-            return [self.__outgoing.get_form()]
-        return ([chunk.get_form() for chunk in context] + [self.__outgoing.get_form()])
+    def __iter__(self):
+        return iter(self.history)
     
 
-
-    # Returns pending chunks
-    def get_residing(self) -> list[Chunk]:
-        return self.__history[:self.__id]
-
-
-
-    def visualize(self) -> None:
-        self.__plot_counter = timeline_plot.plot(
-            self.__history,
-            self.__outgoing,
-            self.__plot_counter,
-            title_prefix=config.EvalEmbed.plot_file_prefix,
-            plot_dir    =self.__plot_dir
-        )
+    def __len__(self):
+        return len(self.history)
+    
