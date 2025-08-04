@@ -113,9 +113,12 @@ class BranchRunner:
         )
 
     async def run(self, files_contents: List[tuple]) -> PlanAndCode:
-        print(f"Branch-{self.branch_id}: Starting {self.iterations} iteration(s) for {len(files_contents)} files...")
-        codes = dict(files_contents)
-        syntax_errors = {fp: None for fp, _ in files_contents}
+        # Filter out any protected files from the files_contents input to enforce guardrail
+        filtered_files_contents = [(fp, content) for fp, content in files_contents if fp not in self.protected_files]
+
+        print(f"Branch-{self.branch_id}: Starting {self.iterations} iteration(s) for {len(filtered_files_contents)} files...")
+        codes = dict(filtered_files_contents)
+        syntax_errors = {fp: None for fp, _ in filtered_files_contents}
         parsed, api_docs = None, self._get_api_docs_text()
         for i in range(self.iterations):
             print(f"Branch-{self.branch_id} Iteration-{i+1}: Improving...")
@@ -127,7 +130,9 @@ class BranchRunner:
                     break
                 syntax_errors = {}
                 all_ok = True
-                for edit in parsed.edits:
+                # Filter edits to exclude any protected files, so protected files never get updated
+                filtered_edits = [edit for edit in parsed.edits if edit.file_path not in self.protected_files]
+                for edit in filtered_edits:
                     try:
                         ast.parse(edit.code)
                         syntax_errors[edit.file_path] = None
@@ -136,7 +141,8 @@ class BranchRunner:
                         syntax_errors[edit.file_path] = msg
                         all_ok = False
                         print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: SyntaxError in `{edit.file_path}`:\n{msg}")
-                codes.update({edit.file_path: edit.code for edit in parsed.edits})
+                # Update codes dict only with edits allowed (non-protected files)
+                codes.update({edit.file_path: edit.code for edit in filtered_edits})
                 if all_ok:
                     print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: Syntax check passed.")
                     break
@@ -191,31 +197,48 @@ class Improver:
             self._protected_files = set()
 
     async def run(self, goal, file_paths: List[str], num_branches=3, iterations_per_branch=3):
-        print(f"\n--- Starting multi-file improvement for files: {file_paths} ---\nGoal: {goal}")
+        # Filter out protected files early and abort if none remain
+        filtered_file_paths = [fp for fp in file_paths if fp not in self._protected_files]
+        if not filtered_file_paths:
+            print(f"No files to improve after filtering protected files: {file_paths}")
+            return
+
+        print(f"\n--- Starting multi-file improvement for files: {filtered_file_paths} ---\nGoal: {goal}")
+
         try:
-            originals = [(fp, self.safe_io.read(fp)) for fp in file_paths]
+            originals = [(fp, self.safe_io.read(fp)) for fp in filtered_file_paths]
         except FileNotFoundError as e:
             print(f"Error: {e}")
             return
+
+        # Pass the protected files list to BranchRunner for internal filtering
         tasks = [BranchRunner(goal, self.safe_io, list(self._protected_files), i+1, iterations_per_branch).run(originals) for i in range(num_branches)]
         results = await asyncio.gather(*tasks)
+
         proposals = [{'id': i+1, 'plan': r.reasoning, 'edits': r.edits} for i, r in enumerate(results) if r]
         if not proposals:
             print("\nResult: No successful proposals.")
             return
+
         integration = await IntegrationRunner(goal, self.safe_io).run(proposals)
         if not integration:
             print("\nResult: No integration result available.")
             return
+
         original_dict = dict(originals)
         if not any(original_dict.get(edit.file_path) != edit.code for edit in integration.edits):
             print("\nResult: No changes detected after integration.")
             return
+
         print("\nApplying integrated changes...")
         try:
             for edit in integration.edits:
+                # Just in case, skip protected files during final write
+                if edit.file_path in self._protected_files:
+                    print(f"Skipping write for protected file: {edit.file_path}")
+                    continue
                 self.safe_io.write(edit.file_path, edit.code)
         except PermissionError as e:
             print(f"Failed to write changes: {e}")
             return
-        print(f"--- Finished multi-file improvement for files: {file_paths} ---")
+        print(f"--- Finished multi-file improvement for files: {filtered_file_paths} ---")
