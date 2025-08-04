@@ -4,7 +4,7 @@ import os
 import yaml
 from functools import lru_cache
 from pydantic import BaseModel, validator
-from typing import List, Optional
+from typing import List
 
 from safe_io import SafeIO
 from llm_provider import get_structured_completion
@@ -41,14 +41,12 @@ Provide reasoning explaining your choices and return the final code edits.
 
     def __init__(self, safe_io: SafeIO):
         self.safe_io = safe_io
-        self._protected_files = self._load_protected_files()
-
-    def _load_protected_files(self) -> List[str]:
         try:
-            data = yaml.safe_load(self.safe_io.read('protected.yaml'))
-            return data if isinstance(data, list) else []
+            data = safe_io.read('protected.yaml')
+            parsed = yaml.safe_load(data)
+            self._protected_files = parsed if isinstance(parsed, list) else []
         except Exception:
-            return []
+            self._protected_files = []
 
     def _is_protected(self, file_path: str) -> bool:
         return file_path in self._protected_files
@@ -62,17 +60,15 @@ Provide reasoning explaining your choices and return the final code edits.
             for f in sorted(files):
                 path = os.path.join(root, f)
                 try:
-                    content = self.safe_io.read(path)
-                    texts.append(f"# Documentation file: {path}\n" + content)
+                    texts.append(f"# Documentation file: {path}\n" + self.safe_io.read(path))
                 except Exception:
                     continue
         return "\n\n".join(texts)
 
     def _construct_branch_prompt_input(self, goal, files_contents, syntax_errors=None):
         files_set = {fp for fp, _ in files_contents}
-        include_docs = 'llm_provider.py' in files_set and not self._is_protected('llm_provider.py')
         msg = [f"**Goal:** {goal}"]
-        if include_docs:
+        if 'llm_provider.py' in files_set and not self._is_protected('llm_provider.py'):
             docs = self._get_api_docs_text()
             if docs:
                 msg.append("\n**Context: API Documentation from docs/ directory:**")
@@ -81,27 +77,20 @@ Provide reasoning explaining your choices and return the final code edits.
         for fp, content in files_contents:
             msg.extend([f"\n**File to improve:** `{fp}`\n\n**Current content:**", "```python", content, "```"])
             if syntax_errors and syntax_errors.get(fp):
-                err = syntax_errors[fp].replace("```", "` ` `")
+                err = syntax_errors[fp].replace('```', '` ` `')
                 msg.extend([f"\nThe previous attempt for `{fp}` resulted in a SyntaxError:", "```", err, "```"])
-        return [
-            {"role": "system", "content": self.BRANCH_SYSTEM_PROMPT},
-            {"role": "user", "content": "\n".join(msg)}
-        ]
+        return [{"role": "system", "content": self.BRANCH_SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(msg)}]
 
     def _construct_integrator_prompt_input(self, goal, proposals):
-        lines = [f"**Original Goal:** {goal}\n---"]
-        for p in proposals:
-            lines.extend(["---", f"\n**Branch ID: {p['id']}**", f"**Reasoning:**\n{p['plan']}", "\n**Code Edits:**"])
-            for edit in p['edits']:
-                lines.extend([f"\nFile: `{edit.file_path}`", "```python", edit.code, "```"])
-        return [
-            {"role": "system", "content": self.INTEGRATOR_SYSTEM_PROMPT},
-            {"role": "user", "content": "\n".join(lines)}
-        ]
+        lines = [f"**Original Goal:** {goal}\n---"] + sum(
+            [["---", f"\n**Branch ID: {p['id']}**", f"**Reasoning:**\n{p['plan']}", "\n**Code Edits:**"] +
+             sum([[f"\nFile: `{edit.file_path}`", "```python", edit.code, "```"] for edit in p['edits']], [])
+             for p in proposals], [])
+        return [{"role": "system", "content": self.INTEGRATOR_SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}]
 
     async def _run_branch(self, branch_id, goal, files_contents, iterations=3, max_corrections=3):
         print(f"Branch-{branch_id}: Starting {iterations} iteration(s) for {len(files_contents)} files...")
-        codes = {fp: content for fp, content in files_contents}
+        codes = dict(files_contents)
         syntax_errors = {fp: None for fp, _ in files_contents}
         parsed = None
 
@@ -115,29 +104,28 @@ Provide reasoning explaining your choices and return the final code edits.
                     print(f"Branch-{branch_id} Iteration-{i+1} Correction-{attempt}: Invalid LLM response.")
                     break
 
-                new_errors = {}
                 all_ok = True
+                syntax_errors = {}
                 for edit in parsed.edits:
                     try:
                         ast.parse(edit.code)
-                        new_errors[edit.file_path] = None
+                        syntax_errors[edit.file_path] = None
                     except SyntaxError as e:
                         msg = f"{e.msg} at line {e.lineno}, offset {e.offset}: {(e.text.strip() if e.text else '')}".strip()
-                        new_errors[edit.file_path] = msg
+                        syntax_errors[edit.file_path] = msg
                         all_ok = False
                         print(f"Branch-{branch_id} Iteration-{i+1} Correction-{attempt}: SyntaxError in `{edit.file_path}`:\n{msg}")
+
                 codes.update({edit.file_path: edit.code for edit in parsed.edits})
-                syntax_errors = new_errors
 
                 if all_ok:
                     print(f"Branch-{branch_id} Iteration-{i+1} Correction-{attempt}: Syntax check passed. Tokens used: {resp.get('tokens', 'unknown')}")
                     break
-
-                if attempt == max_corrections:
+                elif attempt == max_corrections:
                     print(f"Branch-{branch_id} Iteration-{i+1}: Max corrections reached, moving to next iteration.")
                     break
-
-                print(f"Branch-{branch_id} Iteration-{i+1}: Retrying syntax fix (attempt {attempt + 1})...")
+                else:
+                    print(f"Branch-{branch_id} Iteration-{i+1}: Retrying syntax fix (attempt {attempt + 1})...")
         print(f"Branch-{branch_id}: Completed all iterations.")
 
         if any(syntax_errors.values()):
@@ -158,11 +146,7 @@ Provide reasoning explaining your choices and return the final code edits.
         tasks = [self._run_branch(i + 1, goal, originals, iterations_per_branch) for i in range(num_branches)]
         results = await asyncio.gather(*tasks)
 
-        proposals = [
-            {"id": i + 1, "plan": r.reasoning, "edits": r.edits}
-            for i, r in enumerate(results) if r
-        ]
-
+        proposals = [{"id": i + 1, "plan": r.reasoning, "edits": r.edits} for i, r in enumerate(results) if r]
         if not proposals:
             print("\nResult: No successful proposals.")
             return
@@ -174,18 +158,12 @@ Provide reasoning explaining your choices and return the final code edits.
             print("Multiple successful branches, integrating...")
             resp = await get_structured_completion(self._construct_integrator_prompt_input(goal, proposals), PlanAndCode)
             integration = resp.get("parsed_content") if resp else None
-
             if not isinstance(integration, PlanAndCode):
                 print("Integrator LLM failed. Aborting.")
                 return
-
-            for edit in integration.edits:
-                try:
-                    ast.parse(edit.code)
-                except SyntaxError as e:
-                    print(f"Integrated code SyntaxError in `{edit.file_path}`, discarding result:\n{e}")
-                    return
-
+            if any(self._try_parse_code(edit.code) for edit in integration.edits):
+                print("Integrated code SyntaxError detected, discarding result.")
+                return
             print(f"\nIntegration reasoning:\n{integration.reasoning}")
             final_reasoning, final_edits = integration.reasoning, integration.edits
 
@@ -203,3 +181,11 @@ Provide reasoning explaining your choices and return the final code edits.
             return
 
         print(f"--- Finished multi-file improvement for files: {file_paths} ---")
+
+    @staticmethod
+    def _try_parse_code(code: str):
+        try:
+            ast.parse(code)
+            return None
+        except SyntaxError as e:
+            return e
