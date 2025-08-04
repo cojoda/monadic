@@ -6,5 +6,6 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Upgrade the Improver in improver/orchestrator.py to create a wider context for the AI.
-The run method should be modified. After the initial files are selected by the FileSelectionTask, it must import and use the get_local_dependencies function from improver/ast_utils.py. Loop through the initially selected files, find all their local dependencies, and add them to a master set of files. This full, expanded set of context files should then be passed to the BranchRunner instances. Add print statements to log the initial selection vs. the final expanded context for debugging.
+- Update the system prompts in improver/branch.py and improver/integration.py to empower the agents with full multi-file refactoring and creation capabilities.
+1. In improver/branch.py, modify the BranchTask system prompt. It should no longer be told just to "rewrite given files." Change it to state that it can use the files as context to achieve a goal, and that its output can include edits for existing files or for completely new files it invents.
+2. In improver/integration.py, modify the IntegratorTask prompt. It must be told that it will be reviewing proposals that may have different file structures and may include newly created files, and that its job is to choose the best architectural approach.
