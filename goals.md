@@ -6,8 +6,10 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Create a new planning and scaffolding capability in the empty file improver/planning.py. This file will define the new data contract and the agent responsible for creating it.
-Inside improver/planning.py, create a new Pydantic model named ScaffoldingPlan. It must have two fields: reasoning (a string), existing_files_to_edit (a list of strings), and new_files_to_create (a list of strings).
-In the same file, create a new PlanningAndScaffoldingTask class that inherits from LLMTask.
-Its response_model must be the ScaffoldingPlan model.
-Its system prompt should instruct an expert software architect to analyze a user's goal and the project file tree. Based on this, the architect must create a step-by-step plan in the reasoning field. It must then identify all existing project files that will need to be read or edited, and crucially, list all new files (like new modules or test files) that must be created from scratch to fulfill the goal.
+- Fundamentally upgrade the Improver in improver/orchestrator.py to use an autonomous scaffolding workflow, completely replacing the old file selection logic.
+The run method must now import PlanningAndScaffoldingTask and ScaffoldingPlan from improver/planning.py.
+Remove all usage of the old FileSelectionTask.
+Instead, call the new PlanningAndScaffoldingTask. The response will be a ScaffoldingPlan.
+After receiving the plan, the orchestrator must programmatically create the empty files listed in plan.new_files_to_create using self.safe_io.write(file_path, "").
+The combined list of existing_files_to_edit and new_files_to_create should be passed to the AST dependency scanner to build the final, complete context for the branches.
+Log the LLM's reasoning from the scaffolding plan to the console for user visibility.
