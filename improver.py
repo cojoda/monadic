@@ -54,18 +54,29 @@ Return the full, final integrated code that best achieves the original goal.
             {"role": "user", "content": user_content},
         ]
 
-    async def _run_branch(self, branch_id: int, goal: str, file_path: str, original_content: str) -> PlanAndCode | None:
-        print(f"Branch-{branch_id}: Starting...")
-        prompt_input = self._construct_branch_prompt_input(goal, file_path, original_content)
-        response = await get_structured_completion(prompt_input, PlanAndCode)
-        if parsed := response.get("parsed_content") if response else None:
-            if isinstance(parsed, PlanAndCode):
-                print(f"Branch-{branch_id}: Finished. Tokens used: {response['tokens']}")
-                return parsed
-        print(f"Branch-{branch_id}: Failed to get a valid structured response from LLM.")
-        return None
+    async def _run_branch(self, branch_id: int, goal: str, file_path: str, original_content: str, iterations_per_branch: int = 1) -> PlanAndCode | None:
+        print(f"Branch-{branch_id}: Starting with {iterations_per_branch} iteration(s)...")
+        current_content = original_content
+        last_plan_and_code = None
+        for iteration in range(1, iterations_per_branch + 1):
+            print(f"Branch-{branch_id} Iteration-{iteration}: Running improvement...")
+            prompt_input = self._construct_branch_prompt_input(goal, file_path, current_content)
+            response = await get_structured_completion(prompt_input, PlanAndCode)
+            if response and (parsed := response.get("parsed_content")):
+                if isinstance(parsed, PlanAndCode):
+                    print(f"Branch-{branch_id} Iteration-{iteration}: Finished. Tokens used: {response['tokens']}")
+                    current_content = parsed.code
+                    last_plan_and_code = parsed
+                else:
+                    print(f"Branch-{branch_id} Iteration-{iteration}: Invalid structured response type.")
+                    return None
+            else:
+                print(f"Branch-{branch_id} Iteration-{iteration}: Failed to get a valid structured response from LLM.")
+                return None
+        print(f"Branch-{branch_id}: Finished all {iterations_per_branch} iteration(s).")
+        return last_plan_and_code
 
-    async def run(self, goal: str, file_path: str, num_branches: int = 3):
+    async def run(self, goal: str, file_path: str, num_branches: int = 3, iterations_per_branch: int = 3):
         print(f"\n--- Starting improvement run for '{file_path}' ---\nGoal: {goal}")
         try:
             original_content = self.safe_io.read(file_path)
@@ -73,7 +84,11 @@ Return the full, final integrated code that best achieves the original goal.
             print(f"Error: {e}")
             return
 
-        results = await asyncio.gather(*(self._run_branch(i + 1, goal, file_path, original_content) for i in range(num_branches)))
+        results = await asyncio.gather(*(
+            self._run_branch(i + 1, goal, file_path, original_content, iterations_per_branch)
+            for i in range(num_branches)
+        ))
+
         successful = [
             {"id": i + 1, "plan": r.reasoning, "code": r.code}
             for i, r in enumerate(results) if r
