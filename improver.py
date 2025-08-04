@@ -32,7 +32,7 @@ class Improver:
         """Builds the prompt input for the new Responses API."""
         system_prompt = """
 You are an expert Python programmer. Your task is to rewrite a given file to achieve a specific goal.
-You must follow a "Plan-and-Execute" strategy.
+You must follow a \"Plan-and-Execute\" strategy.
 First, create a concise, step-by-step plan in the 'reasoning' field.
 Second, provide the new, complete source code for the file in the 'code' field, based on your plan.
 """
@@ -111,42 +111,38 @@ Return the full, final integrated code that best achieves the original goal.
 
         # --- Integration Phase ---
         print("\n--- Integration Phase ---")
-        
-        successful_proposals = []
-        for i, result in enumerate(branch_results):
-            if result:
-                successful_proposals.append({
-                    "id": i + 1,
-                    "plan": result.reasoning,
-                    "code": result.code
-                })
-        
+
+        successful_proposals = [{
+            "id": i + 1,
+            "plan": result.reasoning,
+            "code": result.code
+        } for i, result in enumerate(branch_results) if result]
+
         if not successful_proposals:
             print("\nResult: No successful proposals to integrate.")
             return
-
-        if len(successful_proposals) == 1:
-            print("\nOnly one successful branch. Applying its changes directly.")
-            final_code = successful_proposals[0]['code']
+        elif len(successful_proposals) == 1:
             final_reasoning = successful_proposals[0]['plan']
+            final_code = successful_proposals[0]['code']
+            print("\nOnly one successful branch. Applying its changes directly.")
         else:
             print("Multiple successful branches detected.")
             print("Integrating the best parts from all proposals to form the final solution...")
             integrator_prompt = self._construct_integrator_prompt_input(goal, successful_proposals)
             integrator_response = await get_structured_completion(integrator_prompt, IntegrationResult)
-            
-            integration_result = integrator_response.get("parsed_content")
+
+            integration_result = integrator_response.get("parsed_content") if integrator_response else None
             if not isinstance(integration_result, IntegrationResult):
                 print("Integrator LLM failed to produce a valid integrated solution. Aborting.")
                 return
 
             print(f"\nIntegration reasoning:\n{integration_result.reasoning}")
-            final_code = integration_result.code
             final_reasoning = integration_result.reasoning
-        
+            final_code = integration_result.code
+
         # Check if the final integrated code is different from original
         diff = list(difflib.unified_diff(original_content.splitlines(), final_code.splitlines()))
-        if len(diff) == 0:
+        if not diff:
             print("\nResult: Integrated proposal resulted in no changes to the code.")
             return
 
