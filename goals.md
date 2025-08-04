@@ -6,8 +6,12 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- The agent's current refactoring capability is unsafe because it does not respect file protections in the expanded context. This goal is to fix this by making the BranchTask aware of protected files.
+- The dependency scanner in improver/ast_utils.py is failing to resolve absolute imports of project modules correctly, leading to "File not found" errors. It must be upgraded to check multiple locations.
 
-In improver/branch.py, find the BranchRunner.run method. Locate the call to self.branch_task.execute(). Modify this call to pass the protected_files list, which is available as self.protected_files.
-Still in improver/branch.py, update the BranchTask.construct_prompt method signature to accept a protected_files: List[str] argument.
-Finally, modify the logic inside BranchTask.construct_prompt to use this new list. If the protected_files list is not empty, it must append a new, clearly marked section to the user prompt. This section should be titled "Protected Files" and explicitly state: "You can use the following files for context, but you MUST NOT include them in your 'edits' list." Then, list the protected files.
+In improver/ast_utils.py, modify the get_local_dependencies function. The logic for handling absolute imports (where the AST node's level is 0) must be changed.
+
+Instead of only checking for the module path at the project root, it must implement a two-step check:
+
+First, try to resolve the path relative to the project root, just as it does now. If the file exists, add it to the set of dependencies.
+If and only if that fails, try to resolve the path relative to the directory of the file currently being parsed. If this second check finds a valid file, add that to the dependencies.
+This dual-check will correctly resolve modules that are imported by their simple name from within the same package directory (e.g., from core import ... inside another file in the improver package).
