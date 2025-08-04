@@ -81,17 +81,8 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
                     # e.g. from . import something (module is None)
                     dep_path = os.path.join(base_dir, '__init__.py')
 
-            else:
-                # Absolute import
-                if module is None:
+                if not os.path.exists(dep_path):
                     continue
-                parts = module.split('.')
-                dep_path = os.path.join(project_root, *parts)
-
-                if os.path.isdir(dep_path):
-                    dep_path = os.path.join(dep_path, '__init__.py')
-                else:
-                    dep_path += '.py'
 
                 try:
                     common = os.path.commonpath([project_root, os.path.abspath(dep_path)])
@@ -100,7 +91,48 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
                 except ValueError:
                     continue
 
-            dep_path = os.path.normpath(dep_path)
-            dependencies.add(dep_path)
+                dependencies.add(os.path.normpath(dep_path))
+
+            else:
+                # Absolute import
+                if module is None:
+                    continue
+
+                parts = module.split('.')
+
+                # First attempt: resolve relative to project root
+                dep_path_proj = os.path.join(project_root, *parts)
+                if os.path.isdir(dep_path_proj):
+                    candidate_path_proj = os.path.join(dep_path_proj, '__init__.py')
+                else:
+                    candidate_path_proj = dep_path_proj + '.py'
+
+                if os.path.exists(candidate_path_proj):
+                    try:
+                        common = os.path.commonpath([project_root, os.path.abspath(candidate_path_proj)])
+                        if common != project_root:
+                            continue  # Not a local import
+                    except ValueError:
+                        continue
+                    dependencies.add(os.path.normpath(candidate_path_proj))
+                else:
+                    # Fallback: resolve relative to current file directory
+                    dep_path_file = os.path.join(file_dir, *parts)
+                    if os.path.isdir(dep_path_file):
+                        candidate_path_file = os.path.join(dep_path_file, '__init__.py')
+                    else:
+                        candidate_path_file = dep_path_file + '.py'
+
+                    if os.path.exists(candidate_path_file):
+                        try:
+                            common = os.path.commonpath([project_root, os.path.abspath(candidate_path_file)])
+                            if common != project_root:
+                                continue  # Not a local import
+                        except ValueError:
+                            continue
+                        dependencies.add(os.path.normpath(candidate_path_file))
+                    else:
+                        # Could not resolve the dependency path
+                        continue
 
     return dependencies
