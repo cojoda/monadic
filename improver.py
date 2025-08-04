@@ -28,10 +28,8 @@ Provide reasoning explaining your choices and return the final code.
     def __init__(self, safe_io: SafeIO):
         self.safe_io = safe_io
 
-    def _construct_branch_prompt_input(self, goal, file_path, content):
-        return [
-            {"role": "system", "content": self.BRANCH_SYSTEM_PROMPT},
-            {"role": "user", "content": f"""
+    def _construct_branch_prompt_input(self, goal, file_path, content, syntax_error=None):
+        base_content = f"""
 **Goal:** {goal}
 
 **File to improve:** `{file_path}`
@@ -40,7 +38,21 @@ Provide reasoning explaining your choices and return the final code.
 ```python
 {content}
 ```
-"""},
+"""
+        if syntax_error:
+            # Add feedback about the syntax error and request fix
+            base_content += f"""
+
+The previous attempt resulted in a SyntaxError:
+```
+{syntax_error}
+```
+Please fix the mistake and provide a corrected version following the same "Plan-and-Execute" strategy.
+"""
+
+        return [
+            {"role": "system", "content": self.BRANCH_SYSTEM_PROMPT},
+            {"role": "user", "content": base_content},
         ]
 
     def _construct_integrator_prompt_input(self, goal, proposals):
@@ -51,24 +63,48 @@ Provide reasoning explaining your choices and return the final code.
             {"role": "user", "content": combined},
         ]
 
-    async def _run_branch(self, branch_id, goal, file_path, content, iterations=1):
+    async def _run_branch(self, branch_id, goal, file_path, content, iterations=1, max_corrections_per_iteration=3):
         print(f"Branch-{branch_id}: Starting {iterations} iteration(s)...")
+        current_content = content
+        syntax_error = None
+        parsed = None
         for i in range(iterations):
             print(f"Branch-{branch_id} Iteration-{i+1}: Improving...")
-            resp = await get_structured_completion(self._construct_branch_prompt_input(goal, file_path, content), PlanAndCode)
-            parsed = resp.get("parsed_content") if resp else None
-            if not isinstance(parsed, PlanAndCode):
-                print(f"Branch-{branch_id} Iteration-{i+1}: Invalid LLM response.")
-                return None
-            try:
-                ast.parse(parsed.code)
-            except SyntaxError as e:
-                print(f"Branch-{branch_id} Iteration-{i+1}: SyntaxError, discarding:\n{e}")
-                return None
-            print(f"Branch-{branch_id} Iteration-{i+1}: Syntax check passed. Tokens used: {resp['tokens']}")
-            content = parsed.code
+            correction_attempt = 0
+            while correction_attempt < max_corrections_per_iteration:
+                correction_attempt += 1
+                prompt_input = self._construct_branch_prompt_input(goal, file_path, current_content, syntax_error)
+                resp = await get_structured_completion(prompt_input, PlanAndCode)
+                parsed = resp.get("parsed_content") if resp else None
+
+                if not isinstance(parsed, PlanAndCode):
+                    print(f"Branch-{branch_id} Iteration-{i+1} Correction-{correction_attempt}: Invalid LLM response.")
+                    return None
+
+                try:
+                    ast.parse(parsed.code)
+                except SyntaxError as e:
+                    syntax_error_msg = str(e)
+                    print(f"Branch-{branch_id} Iteration-{i+1} Correction-{correction_attempt}: SyntaxError detected:\n{syntax_error_msg}")
+                    syntax_error = syntax_error_msg
+                    current_content = parsed.code  # keep the last output to feed back
+                    if correction_attempt == max_corrections_per_iteration:
+                        print(f"Branch-{branch_id} Iteration-{i+1}: Max corrections reached, moving to next iteration while keeping latest code and error.")
+                        # Do not discard iteration, proceed to next iteration with current_content and syntax_error
+                        break
+                    else:
+                        print(f"Branch-{branch_id} Iteration-{i+1}: Retrying to fix syntax error (attempt {correction_attempt+1})...")
+                        continue  # retry correction loop
+                else:
+                    print(f"Branch-{branch_id} Iteration-{i+1} Correction-{correction_attempt}: Syntax check passed. Tokens used: {resp.get('tokens', 'unknown')}")
+                    current_content = parsed.code
+                    syntax_error = None
+                    break  # syntax fixed, proceed to next iteration
+
         print(f"Branch-{branch_id}: Completed all iterations.")
-        return parsed
+        if syntax_error is not None:
+            print(f"Branch-{branch_id}: Finished with unresolved syntax errors, but returning latest result.")
+        return PlanAndCode(reasoning=parsed.reasoning if parsed else "", code=current_content)
 
     async def run(self, goal, file_path, num_branches=3, iterations_per_branch=3):
         print(f"\n--- Starting improvement for '{file_path}' ---\nGoal: {goal}")
@@ -78,7 +114,8 @@ Provide reasoning explaining your choices and return the final code.
             print(f"Error: {e}")
             return
 
-        results = await asyncio.gather(*[self._run_branch(i + 1, goal, file_path, original, iterations_per_branch) for i in range(num_branches)])
+        tasks = [self._run_branch(i + 1, goal, file_path, original, iterations_per_branch) for i in range(num_branches)]
+        results = await asyncio.gather(*tasks)
 
         successes = [
             {"id": i + 1, "plan": r.reasoning, "code": r.code}
