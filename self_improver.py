@@ -7,18 +7,44 @@ from improver import Improver
 from safe_io import SafeIO
 
 def get_active_goal(goals_file: str) -> str:
-    '''Parses goals.md to get the first short-term goal.'''
-    # Your existing function works perfectly.
+    '''Parses goals.md to get the first short-term goal, including multi-line descriptions.'''
     with open(goals_file, 'r') as f:
         lines = f.readlines()
+
     in_short_term_section = False
+    is_collecting_goal = False
+    goal_lines = []
+
     for line in lines:
-        if line.strip().lower() == "## short term":
+        stripped_line = line.strip()
+
+        if stripped_line.lower() == "## short term":
             in_short_term_section = True
             continue
+
         if in_short_term_section:
-            if line.strip().startswith('- '):
-                return line.strip()[2:]
+            # Check for the start of the first bullet point
+            if stripped_line.startswith('- ') and not is_collecting_goal:
+                is_collecting_goal = True
+                goal_lines.append(stripped_line[2:]) # Add the first line without the bullet
+                continue
+
+            if is_collecting_goal:
+                # If we encounter a new bullet or a new section, we're done with the first goal.
+                if stripped_line.startswith('- ') or stripped_line.startswith('##'):
+                    break
+                
+                # If it's just an empty line, preserve it as a paragraph break.
+                if not stripped_line:
+                    goal_lines.append("") # Keep blank lines for formatting
+                else:
+                    # Otherwise, it's a continuation of the current goal
+                    goal_lines.append(stripped_line)
+    
+    if goal_lines:
+        # Join the collected lines back into a single string.
+        return "\n".join(goal_lines).strip()
+
     raise ValueError(f"No short-term goal found in {goals_file}")
 
 async def main():
