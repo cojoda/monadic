@@ -6,4 +6,4 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Enable multi-file editing capabilities. The agent's core logic in `improver.py` must be refactored to handle a list of files instead of a single file path. This includes updating the LLM prompts to accept multiple file contexts and redesigning the Pydantic schema to support a list of file edits, where each edit specifies a `file_path` and its new `code`. This is the first step towards allowing the agent to modify both application code and test code in the same run.
+- Refactor the agent's prompting mechanism to conditionally include API documentation as context. The prompt construction methods in `improver.py` must be updated to check if `llm_provider.py` is one of the files being edited for the current task. If it is, the methods should read documentation from a `docs/` directory and inject it into the prompt. If not, the documentation should be omitted to save tokens and improve focus. This entire task must be completed without editing any of the files listed in `protected.yaml`.
