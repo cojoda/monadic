@@ -13,7 +13,7 @@ You are an expert Python programmer. Your task is to use the provided files as c
 You can freely edit existing files and also invent and create completely new files as needed to fulfill the goal.
 You must follow a "Plan-and-Execute" strategy.
 First, create a concise, step-by-step plan in the "reasoning" field.
-Second, provide the new, complete source codes for the files in the "edits" list, each with "file_path" and its updated "code", based on your plan.
+Second, provide the new, complete source codes for the files in the "edits" list, each with "file_path" and its updated "code".
 """
     response_model = PlanAndCode
 
@@ -27,6 +27,11 @@ Second, provide the new, complete source codes for the files in the "edits" list
             if syntax_errors and syntax_errors.get(fp):
                 err = syntax_errors[fp].replace('```', '` ` `')
                 msg.extend([f'\nThe previous attempt for `{fp}` resulted in a SyntaxError:', '```', err, '```'])
+        if protected_files:
+            msg.append('\n--- Protected Files ---')
+            msg.append('You can use the following files for context, but you MUST NOT include them in your \'edits\' list.')
+            for pf in protected_files:
+                msg.append(f'- {pf}')
         return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(msg)}]
 
 class BranchRunner:
@@ -72,7 +77,7 @@ class BranchRunner:
                     files_contents=list(codes.items()),
                     syntax_errors={k: v for k, v in syntax_errors.items() if v} or None,
                     api_docs=api_docs,
-                    protected_files=list(self.protected_files)
+                    protected_files=list(self.protected_files)  # Pass protected_files here
                 )
                 if not isinstance(resp, PlanAndCode):
                     print(f"Branch-{self.branch_id} Iteration-{i + 1} Correction-{attempt}: Invalid LLM response.")
