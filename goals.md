@@ -6,4 +6,5 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- The file improver/branch.py, needs refactoring. The objective is to make the class implementation more concise and to simplify its logic where possible. The refactored code must maintain all original functionality but achieve it with fewer lines of code.
+- Implement a new utility for static analysis in the empty file improver/ast_utils.py.
+Create a function get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]. This function should use Python's ast module to parse the given Python file. It needs to walk the AST to find all ast.ImportFrom nodes and identify local project imports (both relative like from .models and absolute like from improver.core). It must return a set of normalized file paths for these discovered dependencies.
