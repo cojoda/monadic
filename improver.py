@@ -26,8 +26,16 @@ class PlanAndCode(BaseModel):
 
 class LLMTask(ABC):
     """Abstract base class for LLM tasks bundling a system prompt with a response model."""
-    system_prompt: str
-    response_model: Type[BaseModel]
+
+    @property
+    @abstractmethod
+    def system_prompt(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def response_model(self) -> Type[BaseModel]:
+        pass
 
     def __init__(self, goal: str):
         self.goal = goal
@@ -45,20 +53,28 @@ class LLMTask(ABC):
         return None
 
 class BranchTask(LLMTask):
-    system_prompt = '''
+    @property
+    def system_prompt(self) -> str:
+        return '''
 You are an expert Python programmer. Your task is to rewrite given files to achieve a specific goal.
 You must follow a "Plan-and-Execute" strategy.
 First, create a concise, step-by-step plan in the 'reasoning' field.
 Second, provide the new, complete source codes for the files in the 'edits' list, each with 'file_path' and its updated 'code', based on your plan.
 '''
-    response_model = PlanAndCode
 
-    def __init__(self, goal: str):
-        super().__init__(goal)
+    @property
+    def response_model(self) -> Type[BaseModel]:
+        return PlanAndCode
 
-    def construct_prompt(self, files_contents: List, syntax_errors: Optional[Dict[str, Optional[str]]] = None) -> List[Dict[str, str]]:
+    def construct_prompt(self, files_contents: List, syntax_errors: Optional[Dict[str, Optional[str]]] = None, api_docs: str = '', protected_files: List[str] = []) -> List[Dict[str, str]]:
         msg = [f"**Goal:** {self.goal}"]
-        files_set = {fp for fp, _ in files_contents}
+
+        # Extract file paths
+        file_paths = [fp for fp, _ in files_contents]
+
+        # Include API docs as a distinct 'Context:' only if llm_provider.py is among files and not protected
+        if 'llm_provider.py' in file_paths and 'llm_provider.py' not in protected_files and api_docs.strip():
+            msg.extend(["\n**Context:**", "\n" + api_docs])
 
         for fp, content in files_contents:
             msg.extend([f"\n**File to improve:** `{fp}`\n\n**Current content:**", "```python", content, "```"])
@@ -69,17 +85,19 @@ Second, provide the new, complete source codes for the files in the 'edits' list
         return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(msg)}]
 
 class IntegratorTask(LLMTask):
-    system_prompt = '''
+    @property
+    def system_prompt(self) -> str:
+        return '''
 You are a senior software architect expert in Python code improvement.
 Your task is to carefully review multiple proposed code revisions for the same goal.
 Each proposal includes reasoning and resulting code edits for files.
 Your objective is to integrate the best improvements into a final version.
 Provide reasoning explaining your choices and return the final code edits.
 '''
-    response_model = PlanAndCode
 
-    def __init__(self, goal: str):
-        super().__init__(goal)
+    @property
+    def response_model(self) -> Type[BaseModel]:
+        return PlanAndCode
 
     def construct_prompt(self, proposals: List[Dict]) -> List[Dict[str, str]]:
         lines = [f"**Original Goal:** {self.goal}\n---"] + sum(
@@ -123,25 +141,24 @@ class BranchRunner:
         syntax_errors = {fp: None for fp, _ in files_contents}
         parsed = None
 
+        api_docs = self._get_api_docs_text()
+
         for i in range(self.iterations):
             print(f"Branch-{self.branch_id} Iteration-{i+1}: Improving...")
             for attempt in range(1, self.max_corrections + 1):
                 files_tuple_list = list(codes.items())
-                # Append docs if llm_provider.py is included and not protected
-                if 'llm_provider.py' in codes and not self._is_protected('llm_provider.py'):
-                    docs = self._get_api_docs_text()
-                    if docs:
-                        files_tuple_list = [('__docs__', docs)] + files_tuple_list
 
-                prompt = self.branch_task.construct_prompt(files_contents=files_tuple_list, syntax_errors=syntax_errors)
-                resp = await get_structured_completion(prompt, PlanAndCode)
-                parsed = resp.get("parsed_content") if resp else None
+                # Pass API docs and protected files to BranchTask.construct_prompt - prompt decides whether to include or not
+                resp = await self.branch_task.execute(files_contents=files_tuple_list, syntax_errors=syntax_errors, api_docs=api_docs, protected_files=self.protected_files)
+                parsed = resp
+
                 if not isinstance(parsed, PlanAndCode):
                     print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: Invalid LLM response.")
                     break
 
                 all_ok = True
                 syntax_errors = {}
+
                 for edit in parsed.edits:
                     try:
                         ast.parse(edit.code)
@@ -155,7 +172,7 @@ class BranchRunner:
                 codes.update({edit.file_path: edit.code for edit in parsed.edits})
 
                 if all_ok:
-                    print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: Syntax check passed. Tokens used: {resp.get('tokens', 'unknown')}")
+                    print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: Syntax check passed.")
                     break
                 elif attempt == self.max_corrections:
                     print(f"Branch-{self.branch_id} Iteration-{i+1}: Max corrections reached, moving to next iteration.")
@@ -190,8 +207,10 @@ class IntegrationRunner:
             return PlanAndCode(reasoning=final_reasoning, edits=final_edits)
 
         print("Multiple successful branches, integrating...")
+
         resp = await self.integrator_task.execute(proposals=proposals)
         integration = resp
+
         if not isinstance(integration, PlanAndCode):
             print("Integrator LLM failed. Aborting.")
             return None
@@ -213,8 +232,8 @@ class IntegrationRunner:
             return e
 
 class Improver:
-    BRANCH_SYSTEM_PROMPT = BranchTask.system_prompt
-    INTEGRATOR_SYSTEM_PROMPT = IntegratorTask.system_prompt
+    BRANCH_SYSTEM_PROMPT = BranchTask('').system_prompt
+    INTEGRATOR_SYSTEM_PROMPT = IntegratorTask('').system_prompt
 
     def __init__(self, safe_io: SafeIO):
         self.safe_io = safe_io
