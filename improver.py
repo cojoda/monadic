@@ -1,5 +1,6 @@
 import asyncio
 import difflib
+import ast
 from typing import List
 from pydantic import BaseModel
 
@@ -63,6 +64,15 @@ Return the full, final integrated code that best achieves the original goal.
             if not isinstance(parsed, PlanAndCode):
                 print(f"Branch-{branch_id} Iteration-{i+1}: Invalid LLM response.")
                 return None
+
+            # Stage 1 Syntax Validation: Validate generated code after each iteration and fail fast if syntax error
+            try:
+                ast.parse(parsed.code)
+            except SyntaxError as e:
+                print(f"Branch-{branch_id} Iteration-{i+1}: SyntaxError detected during stage 1 validation, discarding this attempt:\n{e}")
+                return None
+
+            print(f"Branch-{branch_id} Iteration-{i+1}: Syntax check passed.")
             print(f"Branch-{branch_id} Iteration-{i+1}: Done. Tokens used: {resp['tokens']}")
             content, plan_and_code = parsed.code, parsed
         print(f"Branch-{branch_id}: Completed all iterations.")
@@ -99,6 +109,14 @@ Return the full, final integrated code that best achieves the original goal.
             if not isinstance(integration, PlanAndCode):
                 print("Integrator LLM failed. Aborting.")
                 return
+
+            # Stage 2 Syntax Validation: Validate integrated code before writing to disk
+            try:
+                ast.parse(integration.code)
+            except SyntaxError as e:
+                print(f"Integrated code SyntaxError detected during stage 2 validation, discarding integration result:\n{e}")
+                return
+
             print(f"\nIntegration reasoning:\n{integration.reasoning}")
             final_reasoning, final_code = integration.reasoning, integration.code
 
