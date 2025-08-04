@@ -2,6 +2,13 @@
 # This protects the core mechanics and configuration of the system.
 - self_improver.py
 - goals.md
+- goals_refactor.md
 - llm_provider.py
 - safe_io.py
 - protected.yaml
+- docs/
+- .gitignore
+- .git/
+- .direnv/
+- .env
+- .envrc

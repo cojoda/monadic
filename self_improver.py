@@ -29,21 +29,19 @@ async def main():
         description="A self-improving code generator.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    # --- Start of fix ---
-    # 1. Changed '--file' to '--files' and enabled multiple arguments with nargs='+'
-    parser.add_argument(
-        '--files',
-        required=True,
-        nargs='+', # This allows one or more file arguments
-        help="The path(s) to the file(s) to be improved."
-    )
+    # 1. Removed the '--files' argument.
     parser.add_argument(
         '--branches',
         type=int,
         default=3,
         help="The number of parallel improvement branches to run."
     )
-    # --- End of fix ---
+    parser.add_argument(
+        '--iterations',
+        type=int,
+        default=1, # Defaulting to 1 for safer, faster runs
+        help="The number of serial iterations to run per branch."
+    )
     args = parser.parse_args()
 
     try:
@@ -56,14 +54,12 @@ async def main():
     safe_io = SafeIO()
     improver = Improver(safe_io)
 
-    # --- Start of fix ---
-    # 2. Updated the call to use the correct keyword 'file_paths'
+    # 2. Updated the call to remove the 'file_paths' argument.
     await improver.run(
         goal=active_goal,
-        file_paths=args.files, # Changed from file_path=args.file
-        num_branches=args.branches
+        num_branches=args.branches,
+        iterations_per_branch=args.iterations
     )
-    # --- End of fix ---
 
 if __name__ == "__main__":
     asyncio.run(main())
