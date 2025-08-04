@@ -8,21 +8,23 @@ from llm_provider import get_structured_completion
 
 
 class PlanAndCode(BaseModel):
-    '''A Pydantic model to structure the LLM's output for code generation.'''
+    """A Pydantic model to structure the LLM's output for code generation."""
     reasoning: str
     code: str
 
-class IntegratorChoice(BaseModel):
-    '''A Pydantic model to structure the LLM's decision for integration.'''
-    best_branch_id: int
-    justification: str
+
+class IntegrationResult(BaseModel):
+    """A Pydantic model to structure the integrator's combined solution."""
+    reasoning: str  # explanation of integration decision
+    code: str       # the final integrated code
 
 
 class Improver:
-    '''
+    """
     The core engine for iterative code improvement. It manages parallel branches
-    of thought, evaluates their proposals, and integrates the best one.
-    '''
+    of thought, evaluates their proposals, and integrates the best parts into a final solution.
+    """
+
     def __init__(self, safe_io: SafeIO):
         self.safe_io = safe_io
 
@@ -51,16 +53,22 @@ Second, provide the new, complete source code for the file in the 'code' field, 
         ]
 
     def _construct_integrator_prompt_input(self, goal: str, proposals: List[Dict]) -> List[Dict[str, str]]:
-        '''Builds the prompt for the integrator LLM call.'''
+        """Builds the prompt for the integrator LLM call to integrate best parts from proposals."""
         system_prompt = '''
-    You are a senior software architect. Your task is to review several proposed code changes and select the best one.
-    Analyze the provided goal and the different proposals from each branch. Each proposal includes the reasoning (plan) and the resulting code.
-    Choose the proposal that most effectively and correctly achieves the goal.
-    You must provide the ID of the winning branch and a justification for your choice.
-    '''
+You are a senior software architect expert in Python code improvement.
+Your task is to carefully review multiple proposed code revisions for the same goal.
+Each proposal includes a detailed reasoning (plan) and the resulting code.
 
-        user_prompt = f"**Original Goal:** {goal}\n\n---"
-        
+Your objective is to identify, extract, and integrate the best improvements, innovations, and ideas from all proposals into a single, final improved code.
+Provide a comprehensive reasoning explaining how you combined the proposals,
+explaining which parts you selected and why.
+
+Return the full, final integrated code that best achieves the original goal.
+'''
+
+        user_prompt = f"""**Original Goal:** {goal}
+
+---"""
         for p in proposals:
             user_prompt += f"\n\n**Branch ID: {p['id']}**\n"
             user_prompt += f"**Reasoning:**\n{p['plan']}\n\n"
@@ -72,7 +80,7 @@ Second, provide the new, complete source code for the file in the 'code' field, 
         ]
 
     async def _run_branch(self, branch_id: int, goal: str, file_path: str, original_content: str) -> Optional[PlanAndCode]:
-        '''Runs a single improvement branch using structured outputs.'''
+        """Runs a single improvement branch using structured outputs."""
         print(f"Branch-{branch_id}: Starting...")
         prompt_input = self._construct_branch_prompt_input(goal, file_path, original_content)
         response = await get_structured_completion(prompt_input, PlanAndCode)
@@ -85,7 +93,7 @@ Second, provide the new, complete source code for the file in the 'code' field, 
             return None
 
     async def run(self, goal: str, file_path: str, num_branches: int = 3):
-        '''Orchestrates the improvement process for a single file.'''
+        """Orchestrates the improvement process for a single file."""
         print(f"\n--- Starting improvement run for '{file_path}' ---")
         print(f"Goal: {goal}")
 
@@ -101,7 +109,7 @@ Second, provide the new, complete source code for the file in the 'code' field, 
         ]
         branch_results: List[Optional[PlanAndCode]] = await asyncio.gather(*tasks)
 
-        # --- New Integrator Logic ---
+        # --- Integration Phase ---
         print("\n--- Integration Phase ---")
         
         successful_proposals = []
@@ -119,39 +127,34 @@ Second, provide the new, complete source code for the file in the 'code' field, 
 
         if len(successful_proposals) == 1:
             print("\nOnly one successful branch. Applying its changes directly.")
-            best_proposal_code = successful_proposals[0]['code']
+            final_code = successful_proposals[0]['code']
+            final_reasoning = successful_proposals[0]['plan']
         else:
-            print("Multiple successful branches. Asking LLM architect to choose the best...")
+            print("Multiple successful branches detected.")
+            print("Integrating the best parts from all proposals to form the final solution...")
             integrator_prompt = self._construct_integrator_prompt_input(goal, successful_proposals)
-            integrator_response = await get_structured_completion(integrator_prompt, IntegratorChoice)
+            integrator_response = await get_structured_completion(integrator_prompt, IntegrationResult)
             
-            choice = integrator_response.get("parsed_content")
-            if not isinstance(choice, IntegratorChoice):
-                print("Integrator LLM failed to make a valid choice. Aborting.")
+            integration_result = integrator_response.get("parsed_content")
+            if not isinstance(integration_result, IntegrationResult):
+                print("Integrator LLM failed to produce a valid integrated solution. Aborting.")
                 return
 
-            print(f"\nIntegrator Choice: Branch {choice.best_branch_id}")
-            print(f"Justification: {choice.justification}")
-            
-            winner_id = choice.best_branch_id
-            try:
-                # Find the winning proposal dict by its id
-                winning_proposal_dict = next(p for p in successful_proposals if p['id'] == winner_id)
-                best_proposal_code = winning_proposal_dict['code']
-            except StopIteration:
-                print(f"Error: Integrator chose a non-existent branch ID {winner_id}. Aborting.")
-                return
+            print(f"\nIntegration reasoning:\n{integration_result.reasoning}")
+            final_code = integration_result.code
+            final_reasoning = integration_result.reasoning
         
-        # Check if the chosen code is actually different
-        diff_score = len(list(difflib.unified_diff(original_content.splitlines(), best_proposal_code.splitlines())))
-        if diff_score == 0:
-            print("\nResult: Winning proposal resulted in no changes to the code.")
+        # Check if the final integrated code is different from original
+        diff = list(difflib.unified_diff(original_content.splitlines(), final_code.splitlines()))
+        if len(diff) == 0:
+            print("\nResult: Integrated proposal resulted in no changes to the code.")
             return
 
-        print("\nApplying changes from the winning branch...")
+        print("\nApplying integrated changes...")
         try:
-            self.safe_io.write(file_path, best_proposal_code)
+            self.safe_io.write(file_path, final_code)
         except PermissionError as e:
             print(f"Integration failed: {e}")
+            return
 
         print(f"--- Improvement run for '{file_path}' finished ---")
