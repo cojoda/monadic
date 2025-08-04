@@ -6,6 +6,8 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Update the system prompts in improver/branch.py and improver/integration.py to empower the agents with full multi-file refactoring and creation capabilities.
-1. In improver/branch.py, modify the BranchTask system prompt. It should no longer be told just to "rewrite given files." Change it to state that it can use the files as context to achieve a goal, and that its output can include edits for existing files or for completely new files it invents.
-2. In improver/integration.py, modify the IntegratorTask prompt. It must be told that it will be reviewing proposals that may have different file structures and may include newly created files, and that its job is to choose the best architectural approach.
+- The agent's current refactoring capability is unsafe because it does not respect file protections in the expanded context. This goal is to fix this by making the BranchTask aware of protected files.
+
+In improver/branch.py, find the BranchRunner.run method. Locate the call to self.branch_task.execute(). Modify this call to pass the protected_files list, which is available as self.protected_files.
+Still in improver/branch.py, update the BranchTask.construct_prompt method signature to accept a protected_files: List[str] argument.
+Finally, modify the logic inside BranchTask.construct_prompt to use this new list. If the protected_files list is not empty, it must append a new, clearly marked section to the user prompt. This section should be titled "Protected Files" and explicitly state: "You can use the following files for context, but you MUST NOT include them in your 'edits' list." Then, list the protected files.
