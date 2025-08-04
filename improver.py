@@ -47,81 +47,70 @@ Return the full, final integrated code that best achieves the original goal.
 
     def _construct_integrator_prompt_input(self, goal: str, proposals: List[dict]) -> List[dict]:
         user_content = f"**Original Goal:** {goal}\n---" + ''.join(
-            f"\n\n**Branch ID: {p['id']}**\n**Reasoning:**\n{p['plan']}\n\n**Code:**\n```python\n{p['code']}\n```\n---" for p in proposals
-        )
+            f"\n\n**Branch ID: {p['id']}**\n**Reasoning:**\n{p['plan']}\n\n**Code:**\n```python\n{p['code']}\n```\n---" for p in proposals)
         return [
             {"role": "system", "content": self.INTEGRATOR_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ]
 
-    async def _run_branch(self, branch_id: int, goal: str, file_path: str, original_content: str, iterations_per_branch: int = 1) -> PlanAndCode | None:
-        print(f"Branch-{branch_id}: Starting with {iterations_per_branch} iteration(s)...")
-        current_content = original_content
-        last_plan_and_code = None
-        for iteration in range(1, iterations_per_branch + 1):
-            print(f"Branch-{branch_id} Iteration-{iteration}: Running improvement...")
-            prompt_input = self._construct_branch_prompt_input(goal, file_path, current_content)
-            response = await get_structured_completion(prompt_input, PlanAndCode)
-            if response and (parsed := response.get("parsed_content")):
-                if isinstance(parsed, PlanAndCode):
-                    print(f"Branch-{branch_id} Iteration-{iteration}: Finished. Tokens used: {response['tokens']}")
-                    current_content = parsed.code
-                    last_plan_and_code = parsed
-                else:
-                    print(f"Branch-{branch_id} Iteration-{iteration}: Invalid structured response type.")
-                    return None
-            else:
-                print(f"Branch-{branch_id} Iteration-{iteration}: Failed to get a valid structured response from LLM.")
+    async def _run_branch(self, branch_id: int, goal: str, file_path: str, content: str, iterations: int = 1) -> PlanAndCode | None:
+        print(f"Branch-{branch_id}: Starting {iterations} iteration(s)...")
+        plan_and_code = None
+        for i in range(iterations):
+            print(f"Branch-{branch_id} Iteration-{i+1}: Improving...")
+            resp = await get_structured_completion(self._construct_branch_prompt_input(goal, file_path, content), PlanAndCode)
+            parsed = resp and resp.get("parsed_content")
+            if not isinstance(parsed, PlanAndCode):
+                print(f"Branch-{branch_id} Iteration-{i+1}: Invalid LLM response.")
                 return None
-        print(f"Branch-{branch_id}: Finished all {iterations_per_branch} iteration(s).")
-        return last_plan_and_code
+            print(f"Branch-{branch_id} Iteration-{i+1}: Done. Tokens used: {resp['tokens']}")
+            content, plan_and_code = parsed.code, parsed
+        print(f"Branch-{branch_id}: Completed all iterations.")
+        return plan_and_code
 
     async def run(self, goal: str, file_path: str, num_branches: int = 3, iterations_per_branch: int = 3):
-        print(f"\n--- Starting improvement run for '{file_path}' ---\nGoal: {goal}")
+        print(f"\n--- Starting improvement for '{file_path}' ---\nGoal: {goal}")
         try:
-            original_content = self.safe_io.read(file_path)
+            original = self.safe_io.read(file_path)
         except FileNotFoundError as e:
             print(f"Error: {e}")
             return
 
         results = await asyncio.gather(*(
-            self._run_branch(i + 1, goal, file_path, original_content, iterations_per_branch)
-            for i in range(num_branches)
+            self._run_branch(i + 1, goal, file_path, original, iterations_per_branch) for i in range(num_branches)
         ))
 
-        successful = [
+        successes = [
             {"id": i + 1, "plan": r.reasoning, "code": r.code}
             for i, r in enumerate(results) if r
         ]
 
-        if not successful:
-            print("\nResult: No successful proposals to integrate.")
+        if not successes:
+            print("\nResult: No successful proposals.")
             return
 
-        if len(successful) == 1:
-            print("\nOnly one successful branch. Applying its changes directly.")
-            final_reasoning, final_code = successful[0]["plan"], successful[0]["code"]
+        if len(successes) == 1:
+            print("\nSingle successful branch. Using its result.")
+            final_reasoning, final_code = successes[0]["plan"], successes[0]["code"]
         else:
-            print("Multiple successful branches detected. Integrating proposals...")
-            response = await get_structured_completion(
-                self._construct_integrator_prompt_input(goal, successful), PlanAndCode
-            )
-            integration = response.get("parsed_content") if response else None
+            print("Multiple successful branches, integrating...")
+            resp = await get_structured_completion(self._construct_integrator_prompt_input(goal, successes), PlanAndCode)
+            integration = resp and resp.get("parsed_content")
             if not isinstance(integration, PlanAndCode):
-                print("Integrator LLM failed to produce a valid integrated solution. Aborting.")
+                print("Integrator LLM failed. Aborting.")
                 return
             print(f"\nIntegration reasoning:\n{integration.reasoning}")
             final_reasoning, final_code = integration.reasoning, integration.code
 
-        if not list(difflib.unified_diff(original_content.splitlines(), final_code.splitlines())):
-            print("\nResult: Integrated proposal resulted in no changes to the code.")
+        if original == final_code:
+            print("\nResult: No changes detected after integration.")
             return
 
         print("\nApplying integrated changes...")
         try:
             self.safe_io.write(file_path, final_code)
         except PermissionError as e:
-            print(f"Integration failed: {e}")
+            print(f"Failed to write changes: {e}")
             return
 
-        print(f"--- Improvement run for '{file_path}' finished ---")
+        print(f"--- Finished improvement for '{file_path}' ---")
