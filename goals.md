@@ -6,8 +6,10 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- The agent's current refactoring capability is unsafe because it does not respect file protections in the expanded context. This goal is to fix this by making the BranchTask aware of protected files.
+- The dependency scanner in improver/ast_utils.py is incorrectly identifying standard library modules (like functools and typing) as local project files, causing errors. This goal is to fix that by making the scanner "standard library aware."
 
-In improver/branch.py, find the BranchRunner.run method. Locate the call to self.branch_task.execute(). Modify this call to pass the protected_files list, which is available as self.protected_files.
-Still in improver/branch.py, update the BranchTask.construct_prompt method signature to accept a protected_files: List[str] argument.
-Finally, modify the logic inside BranchTask.construct_prompt to use this new list. If the protected_files list is not empty, it must append a new, clearly marked section to the user prompt. This section should be titled "Protected Files" and explicitly state: "You can use the following files for context, but you MUST NOT include them in your 'edits' list." Then, list the protected files.
+In improver/ast_utils.py, modify the get_local_dependencies function:
+
+It must get a list of all standard library module names. The best way to do this is using the sys.stdlib_module_names set, which is available in Python 3.10 and later. Ensure you import sys.
+Inside the loop that processes ast.Import and ast.ImportFrom nodes, check if the root of the imported module's name (e.g., the "functools" in "functools.cached_property") is in the set of standard library names.
+If the module is a standard library module, you must continue to the next node and NOT attempt to resolve it as a local file path. The function should only return paths to files that are actually part of the local project.
