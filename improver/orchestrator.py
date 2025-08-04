@@ -5,7 +5,7 @@ from typing import List, Set
 
 from safe_io import SafeIO
 
-from .selection import FileSelectionTask
+from .planning import PlanningAndScaffoldingTask, ScaffoldingPlan
 from .branch import BranchRunner
 from .integration import IntegrationRunner
 from .models import PlanAndCode
@@ -40,15 +40,39 @@ class Improver:
             print("No files found in project directory.")
             return
 
-        selected_resp = await FileSelectionTask(goal).execute(file_tree=file_tree, protected_files=sorted(self._protected_files))
-        selected_files = [f for f in (getattr(selected_resp, 'selected_files', []) or []) if f not in self._protected_files]
-        if not selected_files:
-            print("No files to improve after filtering protected files.")
+        # Use PlanningAndScaffoldingTask instead of old file selection
+        planning_task = PlanningAndScaffoldingTask(goal)
+        plan: ScaffoldingPlan = await planning_task.execute(file_tree=file_tree)
+
+        if not plan:
+            print("PlanningAndScaffoldingTask returned no plan.")
             return
 
+        # Log the LLM reasoning to console for user visibility
+        if getattr(plan, 'reasoning', None):
+            print(f"\nLLM Reasoning from scaffolding plan:\n{plan.reasoning}\n")
+
+        # Create new files with empty content
+        for new_file in plan.new_files_to_create:
+            try:
+                print(f"Creating new empty file as per scaffolding plan: {new_file}")
+                self.safe_io.write(new_file, "")
+            except PermissionError as e:
+                print(f"Permission denied while creating new file {new_file}: {e}")
+                return
+            except Exception as e:
+                print(f"Error while creating new file {new_file}: {e}")
+                return
+
+        # Combine existing_files_to_edit and new_files_to_create for full context
+        combined_files = set(plan.existing_files_to_edit) | set(plan.new_files_to_create)
+
+        # Filter out protected files for editing
+        filtered_files = [f for f in combined_files if f not in self._protected_files]
+
         # Expand context by including local dependencies
-        expanded_context: Set[str] = set(selected_files)
-        for file_path in selected_files:
+        expanded_context: Set[str] = set(filtered_files)
+        for file_path in filtered_files:
             try:
                 deps = get_local_dependencies(file_path)
                 expanded_context.update(deps)
@@ -57,7 +81,7 @@ class Improver:
 
         expanded_context_sorted = sorted(expanded_context)
 
-        print(f"Initially selected files for improvement (excluding protected): {selected_files}")
+        print(f"Files to improve (excluding protected): {sorted(filtered_files)}")
         print(f"Expanded context files after adding local dependencies: {expanded_context_sorted}")
 
         print(f"\n--- Starting multi-file improvement for files: {expanded_context_sorted} ---\nGoal: {goal}")
@@ -75,11 +99,14 @@ class Improver:
             return
         
         try:
-            original = {fp: self.safe_io.read(fp) for fp in selected_files}
+            # Only read original content from existing files to edit, excluding protected
+            original_files = [fp for fp in plan.existing_files_to_edit if fp not in self._protected_files]
+            original = {fp: self.safe_io.read(fp) for fp in original_files}
         except Exception as e:
             print(f"Failed to read original files before applying changes: {e}")
             return
 
+        # Check if any changes exist
         if not any(original.get(e.file_path) != e.code for e in integration.edits if e.file_path not in self._protected_files):
             print("\nResult: No changes detected after integration.")
             return
@@ -94,4 +121,4 @@ class Improver:
         except PermissionError as e:
             print(f"Failed to write changes: {e}")
             return
-        print(f"--- Finished multi-file improvement for files: {selected_files} ---")
+        print(f"--- Finished multi-file improvement for files: {sorted(filtered_files)} ---")
