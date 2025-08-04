@@ -6,4 +6,4 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Implement a self-correction mechanism. When a syntax check fails on a given iteration, the agent should not discard the attempt. Instead, it must automatically start a new iteration, feeding the `SyntaxError` message back into the prompt and asking the LLM to fix its own mistake.
+- Refactor `improver.py`. The objective is to make the code more concise and simplify logic. The refactored code must maintain all original functionality but achieve it with fewer lines of code.
