@@ -1,6 +1,6 @@
 import asyncio
 import difflib
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel
 
 from safe_io import SafeIO
@@ -11,27 +11,29 @@ class PlanAndCode(BaseModel):
     code: str
 
 class Improver:
-    BRANCH_SYSTEM_PROMPT = """
+    BRANCH_SYSTEM_PROMPT = '''
 You are an expert Python programmer. Your task is to rewrite a given file to achieve a specific goal.
-You must follow a \"Plan-and-Execute\" strategy.
+You must follow a "Plan-and-Execute" strategy.
 First, create a concise, step-by-step plan in the 'reasoning' field.
 Second, provide the new, complete source code for the file in the 'code' field, based on your plan.
-"""
+'''
 
-    INTEGRATOR_SYSTEM_PROMPT = """
+    INTEGRATOR_SYSTEM_PROMPT = '''
 You are a senior software architect expert in Python code improvement.
 Your task is to carefully review multiple proposed code revisions for the same goal.
 Each proposal includes a detailed reasoning (plan) and the resulting code.
 Your objective is to identify, extract, and integrate the best improvements, innovations, and ideas from all proposals into a single, final improved code.
 Provide a comprehensive reasoning explaining how you combined the proposals, explaining which parts you selected and why.
 Return the full, final integrated code that best achieves the original goal.
-"""
+'''
 
     def __init__(self, safe_io: SafeIO):
         self.safe_io = safe_io
 
     def _construct_branch_prompt_input(self, goal: str, file_path: str, file_content: str) -> List[dict]:
-        user_prompt = f"""
+        return [
+            {"role": "system", "content": self.BRANCH_SYSTEM_PROMPT},
+            {"role": "user", "content": f"""
 **Goal:** {goal}
 
 **File to improve:** `{file_path}`
@@ -40,29 +42,26 @@ Return the full, final integrated code that best achieves the original goal.
 ```python
 {file_content}
 ```
-"""
-        return [
-            {"role": "system", "content": self.BRANCH_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+"""},
         ]
 
     def _construct_integrator_prompt_input(self, goal: str, proposals: List[dict]) -> List[dict]:
-        user_prompt = f"**Original Goal:** {goal}\n---" + ''.join(
+        user_content = f"**Original Goal:** {goal}\n---" + ''.join(
             f"\n\n**Branch ID: {p['id']}**\n**Reasoning:**\n{p['plan']}\n\n**Code:**\n```python\n{p['code']}\n```\n---" for p in proposals
         )
         return [
             {"role": "system", "content": self.INTEGRATOR_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": user_content},
         ]
 
-    async def _run_branch(self, branch_id: int, goal: str, file_path: str, original_content: str) -> Optional[PlanAndCode]:
+    async def _run_branch(self, branch_id: int, goal: str, file_path: str, original_content: str) -> PlanAndCode | None:
         print(f"Branch-{branch_id}: Starting...")
         prompt_input = self._construct_branch_prompt_input(goal, file_path, original_content)
         response = await get_structured_completion(prompt_input, PlanAndCode)
-        parsed = response.get("parsed_content") if response else None
-        if isinstance(parsed, PlanAndCode):
-            print(f"Branch-{branch_id}: Finished. Tokens used: {response['tokens']}")
-            return parsed
+        if parsed := response.get("parsed_content") if response else None:
+            if isinstance(parsed, PlanAndCode):
+                print(f"Branch-{branch_id}: Finished. Tokens used: {response['tokens']}")
+                return parsed
         print(f"Branch-{branch_id}: Failed to get a valid structured response from LLM.")
         return None
 
@@ -74,10 +73,7 @@ Return the full, final integrated code that best achieves the original goal.
             print(f"Error: {e}")
             return
 
-        results = await asyncio.gather(*(
-            self._run_branch(i + 1, goal, file_path, original_content) for i in range(num_branches)
-        ))
-
+        results = await asyncio.gather(*(self._run_branch(i + 1, goal, file_path, original_content) for i in range(num_branches)))
         successful = [
             {"id": i + 1, "plan": r.reasoning, "code": r.code}
             for i, r in enumerate(results) if r
