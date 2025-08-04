@@ -47,20 +47,18 @@ class LLMTask(ABC):
         return resp.get('parsed_content') if resp else None
 
 class BranchTask(LLMTask):
-    system_prompt = (
-        'You are an expert Python programmer. Your task is to rewrite given files to achieve a specific goal.'
-        ' You must follow a "Plan-and-Execute" strategy.'
-        ' First, create a concise, step-by-step plan in the "reasoning" field.'
-        ' Second, provide the new, complete source codes for the files in the "edits" list, each with "file_path" and its updated "code", based on your plan.'
-    )
+    system_prompt = ("You are an expert Python programmer. Your task is to rewrite given files to achieve a specific goal."
+                     " You must follow a \"Plan-and-Execute\" strategy."
+                     " First, create a concise, step-by-step plan in the \"reasoning\" field."
+                     " Second, provide the new, complete source codes for the files in the \"edits\" list, each with \"file_path\" and its updated \"code\", based on your plan.")
 
     response_model = PlanAndCode
 
     def construct_prompt(self, files_contents: List, syntax_errors: Dict[str, str] = None, api_docs: str = '', protected_files: List[str] = []) -> List[Dict[str, str]]:
-        msg = [f"**Goal:** {self.goal}"]
         file_paths = {fp for fp, _ in files_contents}
-        if 'llm_provider.py' in file_paths and 'llm_provider.py' not in protected_files and api_docs.strip():
-            msg.extend(["\n**Context:**", f"\n{api_docs}"])
+        msg = [f"**Goal:** {self.goal}"]
+        if 'llm_provider.py' in file_paths - set(protected_files) and api_docs.strip():
+            msg.append(f"\n**Context:**\n\n{api_docs}")
         for fp, content in files_contents:
             msg.extend([f"\n**File to improve:** `{fp}`\n", '```python', content, '```'])
             if syntax_errors and syntax_errors.get(fp):
@@ -72,12 +70,10 @@ class FileSelectionResponse(BaseModel):
     selected_files: List[str]
 
 class FileSelectionTask(LLMTask):
-    system_prompt = (
-        'You are an expert Python programmer tasked with selecting files relevant to a specified goal from a provided file tree.'
-        ' You must strictly NOT select any protected files listed.'
-        ' Respond with a JSON object with key "selected_files" containing an array of file paths.'
-        ' Respond ONLY with the JSON object, no extra text.'
-    )
+    system_prompt = ("You are an expert Python programmer tasked with selecting files relevant to a specified goal from a provided file tree."
+                     " You must strictly NOT select any protected files listed."
+                     " Respond with a JSON object with key \"selected_files\" containing an array of file paths."
+                     " Respond ONLY with the JSON object, no extra text.")
 
     response_model = FileSelectionResponse
 
@@ -91,8 +87,7 @@ class FileSelectionTask(LLMTask):
             "\nBased on the goal, select only relevant files not listed as protected."
             " Respond ONLY with a JSON object with key 'selected_files' listing file paths."
         ]
-        content = "\n".join(prompt_lines)
-        return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": content}]
+        return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(prompt_lines)}]
 
 class IntegratorTask(LLMTask):
     system_prompt = (
@@ -137,19 +132,17 @@ class BranchRunner:
 
     async def run(self, selected_files: List[str]) -> PlanAndCode:
         filtered_files = [fp for fp in selected_files if fp not in self.protected_files]
-
         codes = {}
         for fp in filtered_files:
             try:
                 codes[fp] = self.safe_io.read(fp)
             except Exception as e:
                 print(f"Branch-{self.branch_id}: Failed to read {fp}: {e}")
-
         if not codes:
             print(f"Branch-{self.branch_id}: No files to process after reading.")
             return PlanAndCode(reasoning="No readable files.", edits=[])
 
-        syntax_errors = {fp: None for fp in codes.keys()}
+        syntax_errors = {fp: None for fp in codes}
         parsed = None
         api_docs = self._get_api_docs_text()
 
@@ -158,10 +151,12 @@ class BranchRunner:
         for i in range(self.iterations):
             print(f"Branch-{self.branch_id} Iteration-{i+1}: Improving...")
             for attempt in range(1, self.max_corrections + 1):
-                resp = await self.branch_task.execute(files_contents=list(codes.items()),
-                                                      syntax_errors=syntax_errors,
-                                                      api_docs=api_docs,
-                                                      protected_files=list(self.protected_files))
+                resp = await self.branch_task.execute(
+                    files_contents=list(codes.items()),
+                    syntax_errors=syntax_errors,
+                    api_docs=api_docs,
+                    protected_files=list(self.protected_files)
+                )
                 if not isinstance(resp, PlanAndCode):
                     print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: Invalid LLM response.")
                     break
@@ -240,9 +235,6 @@ class Improver:
         self.safe_io = safe_io
         try:
             parsed = safe_io.read('protected.yaml')
-        except Exception:
-            parsed = None
-        try:
             import yaml
             loaded = yaml.safe_load(parsed) if parsed else None
             self._protected_files = set(loaded) if isinstance(loaded, list) else set()
@@ -250,15 +242,10 @@ class Improver:
             self._protected_files = set()
 
     def _scan_project_files(self) -> List[str]:
-        files = []
-        for root, dirs, filenames in os.walk('.'):  # Walk current directory
-            # Skip hidden directories
-            dirs[:] = [d for d in dirs if not d.startswith('.')]
-            for f in filenames:
-                if f.startswith('.'):  # Skip hidden files
-                    continue
-                path = os.path.relpath(os.path.join(root, f), '.')
-                files.append(path)
+        files = [os.path.relpath(os.path.join(root, f), '.')
+                 for root, _, filenames in os.walk('.')
+                 for f in filenames
+                 if not f.startswith('.') and not any(part.startswith('.') for part in os.path.relpath(root, '.').split(os.sep))]
         files.sort()
         return files
 
@@ -266,26 +253,18 @@ class Improver:
         print(f"\nStarting workspace-aware improvement with goal: {goal}")
 
         file_tree = self._scan_project_files()
-
         if not file_tree:
             print("No files found in project directory.")
             return
 
-        file_selection_task = FileSelectionTask(goal)
-        selected_resp = await file_selection_task.execute(file_tree=file_tree, protected_files=sorted(self._protected_files))
-
-        if not selected_resp or not getattr(selected_resp, 'selected_files', None):
-            print("LLM failed to select any relevant files or returned invalid response.")
-            return
-
-        selected_files = [fp for fp in selected_resp.selected_files if fp not in self._protected_files]
+        selected_resp = await FileSelectionTask(goal).execute(file_tree=file_tree, protected_files=sorted(self._protected_files))
+        selected_files = [fp for fp in (getattr(selected_resp, 'selected_files', []) or []) if fp not in self._protected_files]
 
         if not selected_files:
-            print(f"No files to improve after filtering protected files: {selected_resp.selected_files}")
+            print("No files to improve after filtering protected files.")
             return
 
         print(f"Selected files for improvement (excluding protected): {selected_files}")
-
         print(f"\n--- Starting multi-file improvement for files: {selected_files} ---\nGoal: {goal}")
 
         tasks = [BranchRunner(goal, self.safe_io, list(self._protected_files), i + 1, iterations_per_branch).run(selected_files) for i in range(num_branches)]
@@ -302,7 +281,7 @@ class Improver:
             return
 
         try:
-            original_dict = {fp:self.safe_io.read(fp) for fp in selected_files}
+            original_dict = {fp: self.safe_io.read(fp) for fp in selected_files}
         except Exception as e:
             print(f"Failed to read original files before applying changes: {e}")
             return
