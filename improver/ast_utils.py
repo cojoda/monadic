@@ -3,6 +3,7 @@ import os
 import sys
 from typing import Set
 
+
 def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     """
     Parse the given Python file and find local project dependencies from import statements.
