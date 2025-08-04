@@ -31,19 +31,19 @@ Provide reasoning explaining your choices and return the final code.
     def _construct_branch_prompt_input(self, goal, file_path, content, syntax_error=None):
         msg = f"**Goal:** {goal}\n\n**File to improve:** `{file_path}`\n\n**Current content:**\n```python\n{content}\n```"
         if syntax_error:
-            msg += f"\n\nThe previous attempt resulted in a SyntaxError:\n```\n{syntax_error}\n```\nPlease fix the mistake and provide a corrected version following the same \"Plan-and-Execute\" strategy."
+            msg += f"\n\nThe previous attempt resulted in a SyntaxError:\n```\n{syntax_error}\n```"
         return [{"role": "system", "content": self.BRANCH_SYSTEM_PROMPT}, {"role": "user", "content": msg}]
 
     def _construct_integrator_prompt_input(self, goal, proposals):
-        combined = (
-            f"**Original Goal:** {goal}\n---" +
-            ''.join(f"\n\n**Branch ID: {p['id']}**\n**Reasoning:**\n{p['plan']}\n\n**Code:**\n```python\n{p['code']}\n```\n---" for p in proposals)
-        )
+        combined = f"**Original Goal:** {goal}\n---" + '\n---'.join(
+            f"\n\n**Branch ID: {p['id']}**\n**Reasoning:**\n{p['plan']}\n\n**Code:**\n```python\n{p['code']}\n```" for p in proposals)
         return [{"role": "system", "content": self.INTEGRATOR_SYSTEM_PROMPT}, {"role": "user", "content": combined}]
 
     async def _run_branch(self, branch_id, goal, file_path, content, iterations=3, max_corrections=3):
         print(f"Branch-{branch_id}: Starting {iterations} iteration(s)...")
-        code, syntax_err, parsed = content, None, None
+        code = content
+        syntax_err = None
+        parsed = None
 
         for i in range(iterations):
             print(f"Branch-{branch_id} Iteration-{i+1}: Improving...")
@@ -84,11 +84,13 @@ Provide reasoning explaining your choices and return the final code.
         tasks = [self._run_branch(i + 1, goal, file_path, original, iterations_per_branch) for i in range(num_branches)]
         results = await asyncio.gather(*tasks)
 
-        proposals = [{"id": i + 1, "plan": r.reasoning, "code": r.code} for i, r in enumerate(results) if r]
+        proposals = [
+            {"id": i + 1, "plan": r.reasoning, "code": r.code}
+            for i, r in enumerate(results) if r
+        ]
         if not proposals:
             print("\nResult: No successful proposals.")
             return
-
         if len(proposals) == 1:
             print("\nSingle successful branch. Using its result.")
             final_reasoning, final_code = proposals[0]["plan"], proposals[0]["code"]
