@@ -2,6 +2,7 @@ import asyncio
 import ast
 import os
 import yaml
+from functools import lru_cache
 from pydantic import BaseModel, validator
 from typing import List, Optional
 
@@ -12,7 +13,7 @@ class FileEdit(BaseModel):
     file_path: str
     code: str
 
-class PlanAndCode(BaseModel):  # Renamed for clarity
+class PlanAndCode(BaseModel):
     reasoning: str
     edits: List[FileEdit]
 
@@ -40,153 +41,111 @@ Provide reasoning explaining your choices and return the final code edits.
 
     def __init__(self, safe_io: SafeIO):
         self.safe_io = safe_io
-        self._cached_api_docs_text: Optional[str] = None
         self._protected_files = self._load_protected_files()
 
     def _load_protected_files(self) -> List[str]:
         try:
-            content = self.safe_io.read('protected.yaml')
-            # Expecting protected.yaml to contain a list of file paths
-            data = yaml.safe_load(content)
-            if isinstance(data, list):
-                return data
-            return []
+            data = yaml.safe_load(self.safe_io.read('protected.yaml'))
+            return data if isinstance(data, list) else []
         except Exception:
-            # If the file doesn't exist or can't be read, treat as no protected files
             return []
 
     def _is_protected(self, file_path: str) -> bool:
         return file_path in self._protected_files
 
-    def _get_api_docs_text(self):
-        # Cache docs text to avoid rereading multiple times
-        if self._cached_api_docs_text is not None:
-            return self._cached_api_docs_text
-
-        docs_path = 'docs'
-        if not os.path.isdir(docs_path):
-            self._cached_api_docs_text = ''
+    @lru_cache(maxsize=1)
+    def _get_api_docs_text(self) -> str:
+        if not os.path.isdir('docs'):
             return ''
-
-        docs_texts = []
-        for root, _, files in os.walk(docs_path):
-            for fname in sorted(files):
-                full_path = os.path.join(root, fname)
+        texts = []
+        for root, _, files in os.walk('docs'):
+            for f in sorted(files):
+                path = os.path.join(root, f)
                 try:
-                    content = self.safe_io.read(full_path)
-                    docs_texts.append(f"# Documentation file: {full_path}\n" + content)
+                    content = self.safe_io.read(path)
+                    texts.append(f"# Documentation file: {path}\n" + content)
                 except Exception:
-                    # If any doc file can't be read, skip it
                     continue
-        self._cached_api_docs_text = "\n\n".join(docs_texts)
-        return self._cached_api_docs_text
+        return "\n\n".join(texts)
 
     def _construct_branch_prompt_input(self, goal, files_contents, syntax_errors=None):
-        # files_contents is List of (file_path, content)
-        # syntax_errors is dict file_path->error string or None
-
-        # Determine if 'llm_provider.py' is among the files being improved and not protected
-        file_paths_in_edit = {fp for fp, _ in files_contents}
-        include_docs = ('llm_provider.py' in file_paths_in_edit and 
-                        not self._is_protected('llm_provider.py'))
-
-        msg_lines = [f"**Goal:** {goal}"]
-
+        files_set = {fp for fp, _ in files_contents}
+        include_docs = 'llm_provider.py' in files_set and not self._is_protected('llm_provider.py')
+        msg = [f"**Goal:** {goal}"]
         if include_docs:
-            api_docs_text = self._get_api_docs_text()
-            if api_docs_text:
-                msg_lines.append("\n**Context: API Documentation from docs/ directory:**")
-                msg_lines.append("```python")
-                msg_lines.append(api_docs_text)
-                msg_lines.append("```")
+            docs = self._get_api_docs_text()
+            if docs:
+                msg.append("\n**Context: API Documentation from docs/ directory:**")
+                msg.extend(["```python", docs, "```"])
 
-        for file_path, content in files_contents:
-            msg_lines.append(f"\n**File to improve:** `{file_path}`\n\n**Current content:**")
-            msg_lines.append("```python")
-            msg_lines.append(content)
-            msg_lines.append("```")
-
-            if syntax_errors and syntax_errors.get(file_path):
-                # Safely escape triple backticks to avoid null byte issues
-                escaped_err = syntax_errors[file_path].replace("```", "` ` `")
-                msg_lines.append(f"\nThe previous attempt for `{file_path}` resulted in a SyntaxError:")
-                msg_lines.append("```")
-                msg_lines.append(escaped_err)
-                msg_lines.append("```")
-
-        msg = "\n".join(msg_lines)
+        for fp, content in files_contents:
+            msg.extend([f"\n**File to improve:** `{fp}`\n\n**Current content:**", "```python", content, "```"])
+            if syntax_errors and syntax_errors.get(fp):
+                err = syntax_errors[fp].replace("```", "` ` `")
+                msg.extend([f"\nThe previous attempt for `{fp}` resulted in a SyntaxError:", "```", err, "```"])
         return [
             {"role": "system", "content": self.BRANCH_SYSTEM_PROMPT},
-            {"role": "user", "content": msg}
+            {"role": "user", "content": "\n".join(msg)}
         ]
 
     def _construct_integrator_prompt_input(self, goal, proposals):
-        # proposals: list of dict with 'id', 'plan', 'edits' (list of FileEdits)
-        combined_lines = [f"**Original Goal:** {goal}\n---"]
+        lines = [f"**Original Goal:** {goal}\n---"]
         for p in proposals:
-            combined_lines.append(f"---\n\n**Branch ID: {p['id']}**")
-            combined_lines.append(f"**Reasoning:**\n{p['plan']}")
-            combined_lines.append(f"\n**Code Edits:**")
+            lines.extend(["---", f"\n**Branch ID: {p['id']}**", f"**Reasoning:**\n{p['plan']}", "\n**Code Edits:**"])
             for edit in p['edits']:
-                combined_lines.append(f"\nFile: `{edit.file_path}`")
-                combined_lines.append("```python")
-                combined_lines.append(edit.code)
-                combined_lines.append("```")
-        combined = "\n".join(combined_lines)
+                lines.extend([f"\nFile: `{edit.file_path}`", "```python", edit.code, "```"])
         return [
             {"role": "system", "content": self.INTEGRATOR_SYSTEM_PROMPT},
-            {"role": "user", "content": combined}
+            {"role": "user", "content": "\n".join(lines)}
         ]
 
     async def _run_branch(self, branch_id, goal, files_contents, iterations=3, max_corrections=3):
         print(f"Branch-{branch_id}: Starting {iterations} iteration(s) for {len(files_contents)} files...")
-        # files_contents: List[(file_path, code)] representing current code states
-        current_codes = {fp: content for fp, content in files_contents}
+        codes = {fp: content for fp, content in files_contents}
         syntax_errors = {fp: None for fp, _ in files_contents}
         parsed = None
 
         for i in range(iterations):
             print(f"Branch-{branch_id} Iteration-{i+1}: Improving...")
             for attempt in range(1, max_corrections + 1):
-                prompt = self._construct_branch_prompt_input(goal, list(current_codes.items()), syntax_errors)
+                prompt = self._construct_branch_prompt_input(goal, list(codes.items()), syntax_errors)
                 resp = await get_structured_completion(prompt, PlanAndCode)
                 parsed = resp.get("parsed_content") if resp else None
                 if not isinstance(parsed, PlanAndCode):
                     print(f"Branch-{branch_id} Iteration-{i+1} Correction-{attempt}: Invalid LLM response.")
                     break
 
-                # Validate syntax for each file
-                all_passed = True
                 new_errors = {}
-
+                all_ok = True
                 for edit in parsed.edits:
                     try:
                         ast.parse(edit.code)
                         new_errors[edit.file_path] = None
                     except SyntaxError as e:
-                        err_msg = f"{e.msg} at line {e.lineno}, offset {e.offset}: {(e.text.strip() if e.text else '')}".strip()
-                        new_errors[edit.file_path] = err_msg
-                        all_passed = False
-                        print(f"Branch-{branch_id} Iteration-{i+1} Correction-{attempt}: SyntaxError in `{edit.file_path}`:\n{err_msg}")
-
-                current_codes.update({edit.file_path: edit.code for edit in parsed.edits})
+                        msg = f"{e.msg} at line {e.lineno}, offset {e.offset}: {(e.text.strip() if e.text else '')}".strip()
+                        new_errors[edit.file_path] = msg
+                        all_ok = False
+                        print(f"Branch-{branch_id} Iteration-{i+1} Correction-{attempt}: SyntaxError in `{edit.file_path}`:\n{msg}")
+                codes.update({edit.file_path: edit.code for edit in parsed.edits})
                 syntax_errors = new_errors
 
-                if all_passed:
+                if all_ok:
                     print(f"Branch-{branch_id} Iteration-{i+1} Correction-{attempt}: Syntax check passed. Tokens used: {resp.get('tokens', 'unknown')}")
                     break
-                else:
-                    if attempt == max_corrections:
-                        print(f"Branch-{branch_id} Iteration-{i+1}: Max corrections reached, moving to next iteration.")
-                        break
-                    print(f"Branch-{branch_id} Iteration-{i+1}: Retrying syntax fix (attempt {attempt + 1})...")
+
+                if attempt == max_corrections:
+                    print(f"Branch-{branch_id} Iteration-{i+1}: Max corrections reached, moving to next iteration.")
+                    break
+
+                print(f"Branch-{branch_id} Iteration-{i+1}: Retrying syntax fix (attempt {attempt + 1})...")
         print(f"Branch-{branch_id}: Completed all iterations.")
 
         if any(syntax_errors.values()):
-            print(f"Branch-{branch_id}: Finished with unresolved syntax errors in files: {[fp for fp, err in syntax_errors.items() if err]}")
+            unresolved = [fp for fp, err in syntax_errors.items() if err]
+            print(f"Branch-{branch_id}: Finished with unresolved syntax errors in files: {unresolved}")
 
-        final_edits = [FileEdit(file_path=fp, code=code) for fp, code in current_codes.items()]
-        return PlanAndCode(reasoning=(parsed.reasoning if parsed else ""), edits=final_edits)
+        final_edits = [FileEdit(file_path=fp, code=code) for fp, code in codes.items()]
+        return PlanAndCode(reasoning=parsed.reasoning if parsed else "", edits=final_edits)
 
     async def run(self, goal, file_paths: List[str], num_branches=3, iterations_per_branch=3):
         print(f"\n--- Starting multi-file improvement for files: {file_paths} ---\nGoal: {goal}")
@@ -209,9 +168,8 @@ Provide reasoning explaining your choices and return the final code edits.
             return
 
         if len(proposals) == 1:
+            final_reasoning, final_edits = proposals[0]["plan"], proposals[0]["edits"]
             print("\nSingle successful branch. Using its result.")
-            final_reasoning = proposals[0]["plan"]
-            final_edits = proposals[0]["edits"]
         else:
             print("Multiple successful branches, integrating...")
             resp = await get_structured_completion(self._construct_integrator_prompt_input(goal, proposals), PlanAndCode)
@@ -221,7 +179,6 @@ Provide reasoning explaining your choices and return the final code edits.
                 print("Integrator LLM failed. Aborting.")
                 return
 
-            # Validate all integrated edits
             for edit in integration.edits:
                 try:
                     ast.parse(edit.code)
@@ -230,19 +187,10 @@ Provide reasoning explaining your choices and return the final code edits.
                     return
 
             print(f"\nIntegration reasoning:\n{integration.reasoning}")
-            final_reasoning = integration.reasoning
-            final_edits = integration.edits
+            final_reasoning, final_edits = integration.reasoning, integration.edits
 
-        # Check if any changes compared to originals
-        changes_detected = False
         original_dict = dict(originals)
-        for edit in final_edits:
-            original_code = original_dict.get(edit.file_path)
-            if original_code != edit.code:
-                changes_detected = True
-                break
-
-        if not changes_detected:
+        if not any(original_dict.get(edit.file_path) != edit.code for edit in final_edits):
             print("\nResult: No changes detected after integration.")
             return
 
