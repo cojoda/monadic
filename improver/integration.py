@@ -3,15 +3,15 @@ import ast
 from typing import List, Dict, Any
 
 from .core import LLMTask
-from .models import PlanAndCode, FileEdit  # CORRECTED: Added FileEdit import
+from .models import PlanAndCode, FileEdit
 from safe_io import SafeIO
 
 class IntegratorTask(LLMTask):
     system_prompt = (
         'You are a senior software architect expert in Python code improvement.'
         ' Your task is to carefully review multiple proposed code revisions for the same goal.'
-        ' Each proposal includes reasoning and resulting code edits for files.'
-        ' Your objective is to integrate the best improvements into a final version.'
+        ' Each proposal may have different file structures and may include newly created files.'
+        ' Your objective is to choose the best architectural approach among these proposals and integrate the best improvements into a final version.'
         ' Provide reasoning explaining your choices and return the final code edits.'
     )
     response_model = PlanAndCode

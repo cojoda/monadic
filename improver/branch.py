@@ -9,7 +9,8 @@ from safe_io import SafeIO
 
 class BranchTask(LLMTask):
     system_prompt = """
-You are an expert Python programmer. Your task is to rewrite given files to achieve a specific goal.
+You are an expert Python programmer. Your task is to use the provided files as context to achieve a specific goal.
+You can freely edit existing files and also invent and create completely new files as needed to fulfill the goal.
 You must follow a "Plan-and-Execute" strategy.
 First, create a concise, step-by-step plan in the "reasoning" field.
 Second, provide the new, complete source codes for the files in the "edits" list, each with "file_path" and its updated "code", based on your plan.
