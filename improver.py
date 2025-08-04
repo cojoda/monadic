@@ -40,7 +40,7 @@ Provide reasoning explaining your choices and return the final code.
 ```
 """
         if syntax_error:
-            # Add feedback about the syntax error and request fix
+            # Add detailed feedback about the syntax error including line and offset info
             base_content += f"""
 
 The previous attempt resulted in a SyntaxError:
@@ -63,7 +63,7 @@ Please fix the mistake and provide a corrected version following the same "Plan-
             {"role": "user", "content": combined},
         ]
 
-    async def _run_branch(self, branch_id, goal, file_path, content, iterations=1, max_corrections_per_iteration=3):
+    async def _run_branch(self, branch_id, goal, file_path, content, iterations=3, max_corrections_per_iteration=3):
         print(f"Branch-{branch_id}: Starting {iterations} iteration(s)...")
         current_content = content
         syntax_error = None
@@ -73,33 +73,39 @@ Please fix the mistake and provide a corrected version following the same "Plan-
             correction_attempt = 0
             while correction_attempt < max_corrections_per_iteration:
                 correction_attempt += 1
+
+                # Construct prompt including syntax error if any to enable self-correction
                 prompt_input = self._construct_branch_prompt_input(goal, file_path, current_content, syntax_error)
                 resp = await get_structured_completion(prompt_input, PlanAndCode)
                 parsed = resp.get("parsed_content") if resp else None
 
                 if not isinstance(parsed, PlanAndCode):
                     print(f"Branch-{branch_id} Iteration-{i+1} Correction-{correction_attempt}: Invalid LLM response.")
-                    return None
+                    # Break correction loop; do not discard attempt
+                    break
 
                 try:
                     ast.parse(parsed.code)
                 except SyntaxError as e:
-                    syntax_error_msg = str(e)
+                    # Compose a detailed syntax error message including line, offset, and context
+                    syntax_error_msg = f"{e.msg} at line {e.lineno}, offset {e.offset}: {e.text.strip() if e.text else ''}".strip()
                     print(f"Branch-{branch_id} Iteration-{i+1} Correction-{correction_attempt}: SyntaxError detected:\n{syntax_error_msg}")
+                    # Keep the syntax error to feed back for correction
                     syntax_error = syntax_error_msg
-                    current_content = parsed.code  # keep the last output to feed back
+                    # Retain the latest code even if it has a syntax error
+                    current_content = parsed.code
                     if correction_attempt == max_corrections_per_iteration:
-                        print(f"Branch-{branch_id} Iteration-{i+1}: Max corrections reached, moving to next iteration while keeping latest code and error.")
-                        # Do not discard iteration, proceed to next iteration with current_content and syntax_error
-                        break
+                        print(f"Branch-{branch_id} Iteration-{i+1}: Max corrections reached, moving to next iteration with latest code and error.")
+                        break  # Proceed to next iteration
                     else:
-                        print(f"Branch-{branch_id} Iteration-{i+1}: Retrying to fix syntax error (attempt {correction_attempt+1})...")
-                        continue  # retry correction loop
+                        print(f"Branch-{branch_id} Iteration-{i+1}: Retrying to fix syntax error (attempt {correction_attempt + 1})...")
+                        continue  # Retry correction loop feeding syntax error back
                 else:
+                    # Successfully parsed code: clear syntax error state and update code
                     print(f"Branch-{branch_id} Iteration-{i+1} Correction-{correction_attempt}: Syntax check passed. Tokens used: {resp.get('tokens', 'unknown')}")
                     current_content = parsed.code
                     syntax_error = None
-                    break  # syntax fixed, proceed to next iteration
+                    break  # Success, move to next iteration
 
         print(f"Branch-{branch_id}: Completed all iterations.")
         if syntax_error is not None:
