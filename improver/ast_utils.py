@@ -1,5 +1,6 @@
 import ast
 import os
+import sys
 from typing import Set
 
 def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
@@ -18,15 +19,49 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     file_path = os.path.abspath(file_path)
     file_dir = os.path.dirname(file_path)
 
+    # Safely get standard library module names (available in Python 3.10+)
+    stdlib_modules = getattr(sys, 'stdlib_module_names', set())
+
     with open(file_path, 'r', encoding='utf-8') as f:
         source = f.read()
 
     tree = ast.parse(source, filename=file_path)
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
+        if isinstance(node, ast.Import):
+            # For 'import module[.submodule]', check root module
+            for alias in node.names:
+                root_name = alias.name.split('.')[0]
+                if root_name in stdlib_modules:
+                    # Skip standard library modules
+                    continue
+
+                parts = alias.name.split('.')
+                dep_path = os.path.join(project_root, *parts)
+
+                if os.path.isdir(dep_path):
+                    dep_path = os.path.join(dep_path, '__init__.py')
+                else:
+                    dep_path += '.py'
+
+                try:
+                    common = os.path.commonpath([project_root, os.path.abspath(dep_path)])
+                    if common != project_root:
+                        continue  # Not a local import
+                except ValueError:
+                    continue
+
+                dep_path = os.path.normpath(dep_path)
+                dependencies.add(dep_path)
+
+        elif isinstance(node, ast.ImportFrom):
             module = node.module
             level = node.level  # number of leading dots
+
+            root_name = module.split('.')[0] if module else None
+            if root_name and root_name in stdlib_modules:
+                # Skip standard library modules
+                continue
 
             if level > 0:
                 # Relative import: go up `level` directories from current file's directory
@@ -51,6 +86,7 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
                     continue
                 parts = module.split('.')
                 dep_path = os.path.join(project_root, *parts)
+
                 if os.path.isdir(dep_path):
                     dep_path = os.path.join(dep_path, '__init__.py')
                 else:
