@@ -6,5 +6,5 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Implement a new utility for static analysis in the empty file improver/ast_utils.py.
-Create a function get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]. This function should use Python's ast module to parse the given Python file. It needs to walk the AST to find all ast.ImportFrom nodes and identify local project imports (both relative like from .models and absolute like from improver.core). It must return a set of normalized file paths for these discovered dependencies.
+- Upgrade the Improver in improver/orchestrator.py to create a wider context for the AI.
+The run method should be modified. After the initial files are selected by the FileSelectionTask, it must import and use the get_local_dependencies function from improver/ast_utils.py. Loop through the initially selected files, find all their local dependencies, and add them to a master set of files. This full, expanded set of context files should then be passed to the BranchRunner instances. Add print statements to log the initial selection vs. the final expanded context for debugging.
