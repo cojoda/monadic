@@ -113,7 +113,7 @@ class BranchRunner:
         )
 
     async def run(self, files_contents: List[tuple]) -> PlanAndCode:
-        # Filter out any protected files from the files_contents input to enforce guardrail
+        # Enforce guardrail: filter out any protected files from input
         filtered_files_contents = [(fp, content) for fp, content in files_contents if fp not in self.protected_files]
 
         print(f"Branch-{self.branch_id}: Starting {self.iterations} iteration(s) for {len(filtered_files_contents)} files...")
@@ -130,7 +130,7 @@ class BranchRunner:
                     break
                 syntax_errors = {}
                 all_ok = True
-                # Filter edits to exclude any protected files, so protected files never get updated
+                # Filter edits to exclude protected files to ensure no modifications
                 filtered_edits = [edit for edit in parsed.edits if edit.file_path not in self.protected_files]
                 for edit in filtered_edits:
                     try:
@@ -141,7 +141,7 @@ class BranchRunner:
                         syntax_errors[edit.file_path] = msg
                         all_ok = False
                         print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: SyntaxError in `{edit.file_path}`:\n{msg}")
-                # Update codes dict only with edits allowed (non-protected files)
+                # Update codes dict only with allowed edits
                 codes.update({edit.file_path: edit.code for edit in filtered_edits})
                 if all_ok:
                     print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: Syntax check passed.")
@@ -197,7 +197,7 @@ class Improver:
             self._protected_files = set()
 
     async def run(self, goal, file_paths: List[str], num_branches=3, iterations_per_branch=3):
-        # Filter out protected files early and abort if none remain
+        # Early filter: Remove any protected files - they must never be processed
         filtered_file_paths = [fp for fp in file_paths if fp not in self._protected_files]
         if not filtered_file_paths:
             print(f"No files to improve after filtering protected files: {file_paths}")
@@ -206,12 +206,13 @@ class Improver:
         print(f"\n--- Starting multi-file improvement for files: {filtered_file_paths} ---\nGoal: {goal}")
 
         try:
+            # Only read non-protected files
             originals = [(fp, self.safe_io.read(fp)) for fp in filtered_file_paths]
         except FileNotFoundError as e:
             print(f"Error: {e}")
             return
 
-        # Pass the protected files list to BranchRunner for internal filtering
+        # Pass protected files to BranchRunner for internal enforcement
         tasks = [BranchRunner(goal, self.safe_io, list(self._protected_files), i+1, iterations_per_branch).run(originals) for i in range(num_branches)]
         results = await asyncio.gather(*tasks)
 
@@ -226,14 +227,15 @@ class Improver:
             return
 
         original_dict = dict(originals)
-        if not any(original_dict.get(edit.file_path) != edit.code for edit in integration.edits):
+        # Check if any non-protected file has changes
+        if not any(original_dict.get(edit.file_path) != edit.code for edit in integration.edits if edit.file_path not in self._protected_files):
             print("\nResult: No changes detected after integration.")
             return
 
         print("\nApplying integrated changes...")
         try:
             for edit in integration.edits:
-                # Just in case, skip protected files during final write
+                # Skip any protected file just in case
                 if edit.file_path in self._protected_files:
                     print(f"Skipping write for protected file: {edit.file_path}")
                     continue
