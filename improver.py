@@ -1,7 +1,9 @@
 import asyncio
 import ast
+import os
+import yaml
 from pydantic import BaseModel, validator
-from typing import List
+from typing import List, Optional
 
 from safe_io import SafeIO
 from llm_provider import get_structured_completion
@@ -38,16 +40,72 @@ Provide reasoning explaining your choices and return the final code edits.
 
     def __init__(self, safe_io: SafeIO):
         self.safe_io = safe_io
+        self._cached_api_docs_text: Optional[str] = None
+        self._protected_files = self._load_protected_files()
+
+    def _load_protected_files(self) -> List[str]:
+        try:
+            content = self.safe_io.read('protected.yaml')
+            # Expecting protected.yaml to contain a list of file paths
+            data = yaml.safe_load(content)
+            if isinstance(data, list):
+                return data
+            return []
+        except Exception:
+            # If the file doesn't exist or can't be read, treat as no protected files
+            return []
+
+    def _is_protected(self, file_path: str) -> bool:
+        return file_path in self._protected_files
+
+    def _get_api_docs_text(self):
+        # Cache docs text to avoid rereading multiple times
+        if self._cached_api_docs_text is not None:
+            return self._cached_api_docs_text
+
+        docs_path = 'docs'
+        if not os.path.isdir(docs_path):
+            self._cached_api_docs_text = ''
+            return ''
+
+        docs_texts = []
+        for root, _, files in os.walk(docs_path):
+            for fname in sorted(files):
+                full_path = os.path.join(root, fname)
+                try:
+                    content = self.safe_io.read(full_path)
+                    docs_texts.append(f"# Documentation file: {full_path}\n" + content)
+                except Exception:
+                    # If any doc file can't be read, skip it
+                    continue
+        self._cached_api_docs_text = "\n\n".join(docs_texts)
+        return self._cached_api_docs_text
 
     def _construct_branch_prompt_input(self, goal, files_contents, syntax_errors=None):
         # files_contents is List of (file_path, content)
         # syntax_errors is dict file_path->error string or None
+
+        # Determine if 'llm_provider.py' is among the files being improved and not protected
+        file_paths_in_edit = {fp for fp, _ in files_contents}
+        include_docs = ('llm_provider.py' in file_paths_in_edit and 
+                        not self._is_protected('llm_provider.py'))
+
         msg_lines = [f"**Goal:** {goal}"]
+
+        if include_docs:
+            api_docs_text = self._get_api_docs_text()
+            if api_docs_text:
+                msg_lines.append("\n**Context: API Documentation from docs/ directory:**")
+                msg_lines.append("```python")
+                msg_lines.append(api_docs_text)
+                msg_lines.append("```")
+
         for file_path, content in files_contents:
             msg_lines.append(f"\n**File to improve:** `{file_path}`\n\n**Current content:**")
             msg_lines.append("```python")
             msg_lines.append(content)
             msg_lines.append("```")
+
             if syntax_errors and syntax_errors.get(file_path):
                 # Safely escape triple backticks to avoid null byte issues
                 escaped_err = syntax_errors[file_path].replace("```", "` ` `")
@@ -55,6 +113,7 @@ Provide reasoning explaining your choices and return the final code edits.
                 msg_lines.append("```")
                 msg_lines.append(escaped_err)
                 msg_lines.append("```")
+
         msg = "\n".join(msg_lines)
         return [
             {"role": "system", "content": self.BRANCH_SYSTEM_PROMPT},
