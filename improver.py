@@ -50,10 +50,12 @@ class LLMTask(ABC):
 class BranchTask(LLMTask):
     @property
     def system_prompt(self) -> str:
-        return ("You are an expert Python programmer. Your task is to rewrite given files to achieve a specific goal."
-                " You must follow a \"Plan-and-Execute\" strategy."
-                " First, create a concise, step-by-step plan in the 'reasoning' field."
-                " Second, provide the new, complete source codes for the files in the 'edits' list, each with 'file_path' and its updated 'code', based on your plan.")
+        return (
+            'You are an expert Python programmer. Your task is to rewrite given files to achieve a specific goal.'
+            ' You must follow a "Plan-and-Execute" strategy.'
+            ' First, create a concise, step-by-step plan in the \'reasoning\' field.'
+            ' Second, provide the new, complete source codes for the files in the \'edits\' list, each with \'file_path\' and its updated \'code\', based on your plan.'
+        )
 
     @property
     def response_model(self) -> Type[BaseModel]:
@@ -65,21 +67,23 @@ class BranchTask(LLMTask):
         if 'llm_provider.py' in file_paths and 'llm_provider.py' not in protected_files and api_docs.strip():
             msg += ["\n**Context:**", f"\n{api_docs}"]
         for fp, content in files_contents:
-            msg.extend([f"\n**File to improve:** `{fp}`\n\n**Current content:**", "```python", content, "```"])
+            msg += [f"\n**File to improve:** `{fp}`\n", "```python", content, "```"]
             if syntax_errors and syntax_errors.get(fp):
-                err = syntax_errors[fp]
-                safe_err = err.replace('```', '` ` `') if err else ''
-                msg.extend([f"\nThe previous attempt for `{fp}` resulted in a SyntaxError:", "```", safe_err, "```"])
+                err = syntax_errors[fp] or ''
+                safe_err = err.replace('```', '` ` `')
+                msg += [f"\nThe previous attempt for `{fp}` resulted in a SyntaxError:", "```", safe_err, "```"]
         return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(msg)}]
 
 class IntegratorTask(LLMTask):
     @property
     def system_prompt(self) -> str:
-        return ("You are a senior software architect expert in Python code improvement."
-                " Your task is to carefully review multiple proposed code revisions for the same goal."
-                " Each proposal includes reasoning and resulting code edits for files."
-                " Your objective is to integrate the best improvements into a final version."
-                " Provide reasoning explaining your choices and return the final code edits.")
+        return (
+            'You are a senior software architect expert in Python code improvement.'
+            ' Your task is to carefully review multiple proposed code revisions for the same goal.'
+            ' Each proposal includes reasoning and resulting code edits for files.'
+            ' Your objective is to integrate the best improvements into a final version.'
+            ' Provide reasoning explaining your choices and return the final code edits.'
+        )
 
     @property
     def response_model(self) -> Type[BaseModel]:
@@ -88,37 +92,31 @@ class IntegratorTask(LLMTask):
     def construct_prompt(self, proposals: List[Dict]) -> List[Dict[str, str]]:
         lines = [f"**Original Goal:** {self.goal}\n---"]
         for p in proposals:
-            lines.extend(["---", f"\n**Branch ID: {p['id']}**", f"**Reasoning:**\n{p['plan']}", "\n**Code Edits:**"])
+            lines += ["---", f"\n**Branch ID: {p['id']}**", f"**Reasoning:**\n{p['plan']}", "\n**Code Edits:**"]
             for edit in p['edits']:
-                lines.extend([f"\nFile: `{edit.file_path}`", "```python", edit.code, "```"])
+                lines += [f"\nFile: `{edit.file_path}`", "```python", edit.code, "```"]
         return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(lines)}]
 
 class BranchRunner:
-    def __init__(self, goal: str, safe_io: SafeIO, protected_files: List[str], branch_id: int,
-                 iterations: int = 3, max_corrections: int = 3):
-        self.branch_id = branch_id
-        self.goal = goal
-        self.safe_io = safe_io
-        self.protected_files = set(protected_files)
-        self.iterations = iterations
-        self.max_corrections = max_corrections
+    def __init__(self, goal: str, safe_io: SafeIO, protected_files: List[str], branch_id: int, iterations: int = 3, max_corrections: int = 3):
+        self.branch_id, self.goal, self.safe_io = branch_id, goal, safe_io
+        self.protected_files, self.iterations, self.max_corrections = set(protected_files), iterations, max_corrections
         self.branch_task = BranchTask(goal)
 
     @lru_cache(maxsize=1)
     def _get_api_docs_text(self) -> str:
         if not os.path.isdir('docs'):
             return ''
-        texts = [f"# Documentation file: {os.path.join(root, f)}\n" + self.safe_io.read(os.path.join(root, f))
-                 for root, _, files in os.walk('docs') for f in sorted(files)]
-        return "\n\n".join(texts)
+        return "\n\n".join(
+            f"# Documentation file: {os.path.join(root, f)}\n" + self.safe_io.read(os.path.join(root, f))
+            for root, _, files in os.walk('docs') for f in sorted(files)
+        )
 
     async def run(self, files_contents: List[tuple]) -> PlanAndCode:
         print(f"Branch-{self.branch_id}: Starting {self.iterations} iteration(s) for {len(files_contents)} files...")
         codes = dict(files_contents)
         syntax_errors = {fp: None for fp, _ in files_contents}
-        parsed = None
-        api_docs = self._get_api_docs_text()
-
+        parsed, api_docs = None, self._get_api_docs_text()
         for i in range(self.iterations):
             print(f"Branch-{self.branch_id} Iteration-{i+1}: Improving...")
             for attempt in range(1, self.max_corrections + 1):
@@ -127,8 +125,8 @@ class BranchRunner:
                 if not isinstance(parsed, PlanAndCode):
                     print(f"Branch-{self.branch_id} Iteration-{i+1} Correction-{attempt}: Invalid LLM response.")
                     break
+                syntax_errors = {}
                 all_ok = True
-                syntax_errors.clear()
                 for edit in parsed.edits:
                     try:
                         ast.parse(edit.code)
@@ -154,8 +152,7 @@ class BranchRunner:
 
 class IntegrationRunner:
     def __init__(self, goal: str, safe_io: SafeIO):
-        self.goal = goal
-        self.safe_io = safe_io
+        self.goal, self.safe_io = goal, safe_io
         self.integrator_task = IntegratorTask(goal)
 
     async def run(self, proposals: List[Dict]) -> Optional[PlanAndCode]:
@@ -189,7 +186,7 @@ class Improver:
         self.safe_io = safe_io
         try:
             parsed = yaml.safe_load(safe_io.read('protected.yaml'))
-            self._protected_files = set(parsed if isinstance(parsed, list) else [])
+            self._protected_files = set(parsed) if isinstance(parsed, list) else set()
         except Exception:
             self._protected_files = set()
 
@@ -200,15 +197,13 @@ class Improver:
         except FileNotFoundError as e:
             print(f"Error: {e}")
             return
-        tasks = [BranchRunner(goal, self.safe_io, list(self._protected_files), i+1, iterations_per_branch).run(originals)
-                 for i in range(num_branches)]
+        tasks = [BranchRunner(goal, self.safe_io, list(self._protected_files), i+1, iterations_per_branch).run(originals) for i in range(num_branches)]
         results = await asyncio.gather(*tasks)
         proposals = [{'id': i+1, 'plan': r.reasoning, 'edits': r.edits} for i, r in enumerate(results) if r]
         if not proposals:
             print("\nResult: No successful proposals.")
             return
-        integration_runner = IntegrationRunner(goal, self.safe_io)
-        integration = await integration_runner.run(proposals)
+        integration = await IntegrationRunner(goal, self.safe_io).run(proposals)
         if not integration:
             print("\nResult: No integration result available.")
             return
