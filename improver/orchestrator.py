@@ -1,9 +1,7 @@
-# improver/orchestrator.py
-
 import asyncio
 import os
 import yaml
-from typing import List
+from typing import List, Set
 
 from safe_io import SafeIO
 
@@ -11,6 +9,7 @@ from .selection import FileSelectionTask
 from .branch import BranchRunner
 from .integration import IntegrationRunner
 from .models import PlanAndCode
+from .ast_utils import get_local_dependencies
 
 class Improver:
     """The main orchestrator that runs the end-to-end improvement process."""
@@ -47,9 +46,23 @@ class Improver:
             print("No files to improve after filtering protected files.")
             return
 
-        print(f"Selected files for improvement (excluding protected): {selected_files}")
-        print(f"\n--- Starting multi-file improvement for files: {selected_files} ---\nGoal: {goal}")
-        runners = [BranchRunner(goal, self.safe_io, list(self._protected_files), i+1, iterations_per_branch).run(selected_files) for i in range(num_branches)]
+        # Expand context by including local dependencies
+        expanded_context: Set[str] = set(selected_files)
+        for file_path in selected_files:
+            try:
+                deps = get_local_dependencies(file_path)
+                expanded_context.update(deps)
+            except Exception as e:
+                print(f"Warning: Failed to get local dependencies for {file_path}: {e}")
+
+        expanded_context_sorted = sorted(expanded_context)
+
+        print(f"Initially selected files for improvement (excluding protected): {selected_files}")
+        print(f"Expanded context files after adding local dependencies: {expanded_context_sorted}")
+
+        print(f"\n--- Starting multi-file improvement for files: {expanded_context_sorted} ---\nGoal: {goal}")
+
+        runners = [BranchRunner(goal, self.safe_io, list(self._protected_files), i+1, iterations_per_branch).run(expanded_context_sorted) for i in range(num_branches)]
         results = await asyncio.gather(*runners)
         proposals = [dict(id=i+1, plan=r.reasoning, edits=r.edits) for i, r in enumerate(results) if r]
         if not proposals:
