@@ -6,4 +6,4 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Implement 'workspace awareness' by removing the `file_paths` parameter from the `Improver.run` method. The agent must now autonomously determine which files to edit by: 1. Scanning the project directory to create a file tree. 2. Using a new `FileSelectionTask` to ask the LLM to choose relevant files based on the goal and the file tree. 3. The prompt for this task must include the list of protected files as a strict constraint, forbidding the LLM from selecting them.
+- Refactor `improver.py`. The objective is to make the code more concise and simplify logic. The refactored code must maintain all original functionality but achieve it with fewer lines of code. **This entire task must be completed without editing any of the files listed in `protected.yaml`.**
