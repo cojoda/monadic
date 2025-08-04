@@ -6,4 +6,4 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- The LLMTask abstract base class, located in the file improver/core.py, needs refactoring. The objective is to make the class implementation more concise and to simplify its logic where possible. The refactored code must maintain all original functionality but achieve it with fewer lines of code.
+- The file improver/branch.py, needs refactoring. The objective is to make the class implementation more concise and to simplify its logic where possible. The refactored code must maintain all original functionality but achieve it with fewer lines of code.
