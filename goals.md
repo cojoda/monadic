@@ -6,10 +6,21 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Fundamentally upgrade the Improver in improver/orchestrator.py to use an autonomous scaffolding workflow, completely replacing the old file selection logic.
-The run method must now import PlanningAndScaffoldingTask and ScaffoldingPlan from improver/planning.py.
-Remove all usage of the old FileSelectionTask.
-Instead, call the new PlanningAndScaffoldingTask. The response will be a ScaffoldingPlan.
-After receiving the plan, the orchestrator must programmatically create the empty files listed in plan.new_files_to_create using self.safe_io.write(file_path, "").
-The combined list of existing_files_to_edit and new_files_to_create should be passed to the AST dependency scanner to build the final, complete context for the branches.
-Log the LLM's reasoning from the scaffolding plan to the console for user visibility.
+- Implement a validation and self-correction loop for the planning phase.
+
+In improver/orchestrator.py, after the initial ScaffoldingPlan is generated, add a validation and self-correction loop to ensure the plan is viable before proceeding.
+
+The new logic should:
+
+Iterate through the existing_files_to_edit list from the generated plan.
+
+For each file, use os.path.exists() to verify it is present on the filesystem.
+
+If any file does not exist, the plan is considered invalid. The system should then:
+a.  Construct a detailed error message explaining which file was not found.
+b.  Re-run the PlanningAndScaffoldingTask, providing the error message as new context to correct the plan.
+c.  This retry loop should be attempted a maximum of 2 times before failing.
+
+To support this, improver/planning.py must also be modified:
+
+The construct_prompt method in PlanningAndScaffoldingTask needs to be updated to accept an optional error context string, which will be added to the prompt to guide the AI's correction.
