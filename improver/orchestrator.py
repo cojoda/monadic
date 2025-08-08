@@ -347,9 +347,9 @@ class Improver:
                         TestFailureAnalysisTask = None
 
                     analysis_result = None
+                    possible_test_file = None
                     if TestFailureAnalysisTask is not None:
                         test_source = None
-                        possible_test_file = None
                         if test_nodeid:
                             possible_test_file = test_nodeid.split('::')[0]
                         if possible_test_file:
@@ -398,53 +398,108 @@ class Improver:
                                 return '<unknown>'
                             try:
                                 norm = os.path.normpath(path)
-                                if norm.startswith(os.path.normpath(td) + os.sep):
-                                    rel = os.path.relpath(norm, start=td)
-                                    return rel
-                                rel = os.path.relpath(norm, start=os.path.abspath('.'))
-                                return rel
+                                td_norm = os.path.normpath(td) if td else ''
+                                repo_root = os.path.normpath(os.path.abspath('.'))
+                                # If path is inside the sandbox tempdir, show repo-relative mapping if possible
+                                if td_norm and (norm == td_norm or norm.startswith(td_norm + os.sep)):
+                                    rel = os.path.relpath(norm, start=td_norm)
+                                    return rel.replace('\\', '/')
+                                # If path is absolute and inside repo root, show repo-relative
+                                if os.path.isabs(norm):
+                                    if norm == repo_root or norm.startswith(repo_root + os.sep):
+                                        return os.path.relpath(norm, start=repo_root).replace('\\', '/')
+                                    # Otherwise, avoid leaking environment-specific absolute paths; show basename
+                                    return os.path.basename(norm)
+                                # If already relative, normalize and return
+                                return os.path.normpath(norm).replace('\\', '/')
                             except Exception:
-                                return path
+                                return path or '<unknown>'
 
-                        app_file_display = _make_display_path(app_file) if app_file else '<application file unknown>'
-
-                        test_display = test_nodeid or '<unknown test>'
+                        # Determine application file display with fallback to first non-protected .py edit
+                        app_file_display = '<application file unknown>'
                         try:
-                            if isinstance(test_display, str) and td and os.path.normpath(td) in os.path.normpath(test_display):
-                                if '::' in test_display:
-                                    fp, _, rest = test_display.partition('::')
-                                    mapped = _make_display_path(fp)
-                                    test_display = f"{mapped}::{rest}"
-                                else:
-                                    test_display = _make_display_path(test_display)
+                            if app_file:
+                                app_file_display = _make_display_path(app_file)
+                            else:
+                                fallback = None
+                                for edit in integration.edits:
+                                    try:
+                                        fp = getattr(edit, 'file_path', None) if not isinstance(edit, dict) else edit.get('file_path')
+                                        if not fp:
+                                            continue
+                                        if fp in self._protected_files:
+                                            continue
+                                        if fp.lower().endswith('.py'):
+                                            fallback = fp
+                                            break
+                                    except Exception:
+                                        continue
+                                if fallback:
+                                    app_file_display = _make_display_path(fallback)
                         except Exception:
-                            pass
+                            app_file_display = '<application file unknown>'
+
+                        # Determine test identifier display
+                        test_file_display = '<unknown>'
+                        test_name = None
+                        test_identifier = None
+
+                        if test_nodeid:
+                            if '::' in test_nodeid:
+                                tf, tn = test_nodeid.split('::', 1)
+                                try:
+                                    # Map tf to repo-relative if possible
+                                    mapped = _make_display_path(tf)
+                                    test_file_display = mapped
+                                except Exception:
+                                    test_file_display = tf
+                                test_name = tn
+                            else:
+                                test_file_display = _make_display_path(test_nodeid)
+                        else:
+                            if possible_test_file:
+                                test_file_display = _make_display_path(possible_test_file)
+
+                        if test_name:
+                            test_identifier = f"{test_file_display}::{test_name}"
+                        else:
+                            test_identifier = test_file_display
 
                         # Shorten/clean error message
                         err_display = last_err or ''
                         if err_display and len(err_display) > 300:
                             err_display = err_display[:297] + '...'
 
-                        suggested_goal = f"Fix the bug in `{app_file_display}` that causes the test `{test_display}` to fail."
+                        # Construct suggested goal following the requested format
+                        if app_file_display and test_identifier and app_file_display != '<application file unknown>' and test_identifier != '<unknown>':
+                            suggested_goal = f"Fix the bug in `{app_file_display}` that causes the test `{test_identifier}` to fail."
+                        elif app_file_display and app_file_display != '<application file unknown>':
+                            suggested_goal = f"Fix the bug in `{app_file_display}` that causes tests to fail."
+                        elif test_identifier and test_identifier != '<unknown>':
+                            suggested_goal = f"Fix the bug that causes the test `{test_identifier}` to fail."
+                        else:
+                            suggested_goal = "Fix the bug that causes tests to fail."
+
                         if err_display:
                             suggested_goal += f" Error observed: {err_display}"
 
                         # Record this failure in the persistent failure log against the goal and specific test (best-effort)
                         try:
-                            test_log_key = test_nodeid or (app_file or '<unknown>')
+                            log_key = test_identifier or test_nodeid or possible_test_file or (app_file or '<unknown>')
                         except Exception:
-                            test_log_key = test_nodeid or app_file or '<unknown>'
+                            log_key = test_identifier or test_nodeid or app_file or '<unknown>'
                         try:
-                            cnt = increment_failure(goal, test_log_key)
-                            print(f"[Improver] Recorded automated suggested-goal failure for goal='{goal}', test='{test_log_key}'. New consecutive failure count: {cnt}")
+                            cnt = increment_failure(goal, log_key)
+                            print(f"[Improver] Recorded automated suggested-goal failure for goal='{goal}', test='{log_key}'. New consecutive failure count: {cnt}")
                         except Exception:
                             pass
 
                         # Print the clear, prefixed message and suggested goal and do not apply edits
                         print("\n[Improver] IMPORTANT: Automated test failure analysis indicates an application code bug related to the proposed edits.")
                         print("[Improver] The proposed changes will NOT be applied to your repository.")
-                        print("[Improver] Suggested new goal for the developer (use this as the next improvement objective):")
+                        print("[Improver] SUGGESTED NEW GOAL FOR A DEVELOPER:")
                         print('\n' + suggested_goal + '\n')
+                        print("[Improver] Exiting improvement run to allow a developer to address the bug.")
 
                         # Gracefully exit the improvement run without applying changes
                         return
