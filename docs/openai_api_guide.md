@@ -1,7 +1,7 @@
 # docs/openai_api_guide.md
 
 # Current Available OpenAI models to use (As of August 2025)
-gpt-4.1-mini
+gpt-5-mini
 
 # Usage Example
 from openai import OpenAI
@@ -16,7 +16,7 @@ class MySchema(BaseModel):
 
 # 2. Call the API using client.responses.parse and pass the schema.
 response = client.responses.parse(
-    model="gpt-4.1-mini",
+    model="gpt-5-mini",
     input=[
         {"role": "system", "content": "Extract data into the schema."},
         {"role": "user", "content": "The name is 'Example' and the status is true."}
