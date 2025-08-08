@@ -6,8 +6,9 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Implement the Test Failure Analysis task.
+- Implement the deadlock prevention mechanism.
 
-This goal has two parts:
-1.  Create a new file, `improver/testing.py`, which will contain a new `TestFailureAnalysisTask`. This LLM task will take the output of a failing `pytest` run and the source code of the failing test as input. It should determine whether the test failed due to a bug in the application code or a flaw in the test itself.
-2.  Update `improver/orchestrator.py` to call this new task whenever a test fails. The result of the analysis should be printed to the console.
+This will be achieved by:
+1.  Creating a simple JSON-based logger, `test_failure_log.json`, to keep track of which tests have failed and how many times in a row.
+2.  In `improver/orchestrator.py`, before running a new improvement, check this log. If a test has failed on the previous two attempts for the same goal, halt the process and print a message advising a human to review the failing test.
+3.  If a test run succeeds, the log for that test should be cleared.
