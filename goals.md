@@ -6,7 +6,10 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Make the IntegrationRunner file-type aware.
+- Create the initial testing infrastructure.
 
-This involves one final change:
-1.  Modify the `run` method in `improver/integration.py`. The syntax check must be updated to only parse files with a `.py` extension. Files without a `.py` extension should be skipped by the syntax check.
+This involves the following steps:
+1.  Create a `tests` directory for all test files.
+2.  Add a `pytest.ini` file to configure `pytest`.
+3.  Create a simple placeholder test in `tests/test_placeholder.py` that always passes to ensure the test runner is working correctly.
+4.  Modify `improver/orchestrator.py`: After the integration step is complete, run `pytest` to execute the tests. For now, the results should just be printed, and a failing test should not block the application of the changes.
