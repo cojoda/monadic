@@ -26,7 +26,6 @@ async def get_structured_completion(
             model=model,
             input=prompt_input,
             text_format=schema,
-            # reasoning_effort="high",
         )
 
         if response.output_parsed:
