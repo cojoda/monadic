@@ -6,8 +6,8 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Improve dependency analysis to differentiate between local modules and installed packages.
+- Implement the Test Failure Analysis task.
 
-This will involve the following changes to `improver/ast_utils.py`:
-1.  **Check Standard Library**: Before assuming a module is a local file, check if it's part of Python's standard library. If it is, ignore it.
-2.  **Validate Local Paths**: When an import is not in the standard library, ensure that the file path it resolves to is actually within the project directory. This will prevent the agent from trying to find installed packages in the local file system.
+This goal has two parts:
+1.  Create a new file, `improver/testing.py`, which will contain a new `TestFailureAnalysisTask`. This LLM task will take the output of a failing `pytest` run and the source code of the failing test as input. It should determine whether the test failed due to a bug in the application code or a flaw in the test itself.
+2.  Update `improver/orchestrator.py` to call this new task whenever a test fails. The result of the analysis should be printed to the console.
