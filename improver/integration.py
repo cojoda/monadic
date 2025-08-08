@@ -48,7 +48,7 @@ class IntegrationRunner:
             print("Integrator LLM failed. Aborting.")
             return None
 
-        # Validate only Python files (.py). Use a helper that accepts file_path and code
+        # Validate only Python files (.py). Skip syntax checking for non-.py files.
         for e in integration.edits:
             # Support both attribute-style FileEdit objects and dict-like edits
             file_path = getattr(e, 'file_path', None)
@@ -57,6 +57,11 @@ class IntegrationRunner:
             code = getattr(e, 'code', None)
             if code is None and isinstance(e, dict):
                 code = e.get('code', '')
+
+            # Only attempt to parse files that have a string file_path ending with .py
+            if not (isinstance(file_path, str) and file_path.lower().endswith('.py')):
+                # Skip syntax check for non-python files or edits without a valid file path
+                continue
 
             err = self._try_parse_code(file_path, code)
             if err:
