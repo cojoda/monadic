@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 import shutil
+import re
 from typing import List, Set, Optional
 
 # Try importing SafeIO robustly (absolute then relative import) so the orchestrator
@@ -22,6 +23,7 @@ from .branch import BranchRunner
 from .integration import IntegrationRunner
 from .models import PlanAndCode
 from .ast_utils import get_local_dependencies
+from .testing import TestFailureAnalysisTask
 
 
 class Improver:
@@ -105,6 +107,83 @@ class Improver:
             print(f"[Improver] pytest finished with exit code: {rc}\n")
         except Exception as e:
             print(f"[Improver] Failed to run pytest: {e}")
+
+        # If tests failed, attempt to analyze the failure using the TestFailureAnalysisTask
+        if rc != 0:
+            try:
+                pytest_output = (stdout or '') + "\n" + (stderr or '')
+
+                # Try to extract a failing test file path from pytest output
+                def _extract_failing_test_path(output: str) -> Optional[str]:
+                    # Look for patterns like 'path/to/file.py:123' which pytest often emits
+                    m = re.search(r'(?m)([\w\./\\\-]+\.py):\d+', output)
+                    if m:
+                        candidate = m.group(1)
+                        if os.path.exists(candidate):
+                            return candidate
+                        # try relative to cwd
+                        rel = os.path.join(os.getcwd(), candidate)
+                        if os.path.exists(rel):
+                            return rel
+                    # Look for 'FAILED some/path/to/test_file.py::test_name' style
+                    m2 = re.search(r'(?m)^(FAILED|ERROR)\s+([^\s:]+\.py)', output)
+                    if m2:
+                        candidate = m2.group(2)
+                        if os.path.exists(candidate):
+                            return candidate
+                    # Fallback: pick a test_*.py file in repo if present
+                    for root, _, files in os.walk('.'):
+                        for f in files:
+                            if f.startswith('test_') and f.endswith('.py'):
+                                return os.path.join(root, f)
+                    return None
+
+                test_path = _extract_failing_test_path(pytest_output)
+                test_source = None
+                if test_path:
+                    try:
+                        test_source = self.safe_io.read(test_path)
+                    except Exception:
+                        # best-effort; ignore failure to read
+                        test_source = None
+
+                # Create and invoke the analysis task
+                analysis_task = TestFailureAnalysisTask(goal="Analyze pytest failure and determine cause")
+                analysis_result = None
+                try:
+                    analysis_result = await analysis_task.execute(
+                        pytest_output=pytest_output,
+                        test_file_path=test_path,
+                        test_source=test_source
+                    )
+                except TypeError:
+                    # Some implementations may accept different kwarg names; try positional fallback
+                    try:
+                        analysis_result = await analysis_task.execute(pytest_output, test_path, test_source)
+                    except Exception:
+                        analysis_result = None
+
+                if analysis_result is None:
+                    print("[TestAnalysis] LLM returned no structured analysis.")
+                else:
+                    # analysis_result is a pydantic model instance (TestFailureAnalysis)
+                    try:
+                        verdict = getattr(analysis_result, 'verdict', None)
+                        confidence = getattr(analysis_result, 'confidence', None)
+                        explanation = getattr(analysis_result, 'explanation', None)
+                        suggested_fix = getattr(analysis_result, 'suggested_fix', None)
+
+                        print("\n[Improver] Test Failure Analysis Result:")
+                        print(f"Verdict: {verdict or '<unknown>'} (confidence: {confidence or 'unknown'})")
+                        if explanation:
+                            print(f"Explanation: {explanation}")
+                        if suggested_fix:
+                            print(f"Suggested fix: {suggested_fix}")
+                    except Exception:
+                        print("[TestAnalysis] Received analysis but failed to read fields.")
+
+            except Exception as e:
+                print(f"[Improver] Failed to perform test failure analysis: {e}")
 
     async def run(self, goal, num_branches=3, iterations_per_branch=3):
         print(f"\nStarting workspace-aware improvement with goal: {goal}")
