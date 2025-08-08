@@ -1,6 +1,10 @@
 import asyncio
 import os
 import yaml
+import subprocess
+import sys
+import threading
+import shutil
 from typing import List, Set, Optional
 
 from safe_io import SafeIO
@@ -33,6 +37,59 @@ class Improver:
                  for f in fnames if not f.startswith('.')]
         files.sort()
         return files
+
+    async def _run_pytest(self) -> None:
+        """Run pytest in a background thread and print results. Failures do not raise here.
+
+        The routine prefers running pytest via `python -m pytest` using the current
+        interpreter. If that fails, it will try importing pytest and invoking
+        pytest.main. All blocking operations run in a thread via asyncio.to_thread.
+        """
+        print("\n[Improver] Running pytest (background)...")
+
+        def _run_subprocess_pytest():
+            try:
+                completed = subprocess.run(
+                    [sys.executable, '-m', 'pytest', '-q'],
+                    capture_output=True,
+                    text=True,
+                )
+                stdout = completed.stdout or ""
+                stderr = completed.stderr or ""
+                rc = completed.returncode
+                return rc, stdout, stderr
+            except Exception as e:
+                return 2, "", f"Subprocess invocation failed: {e}"
+
+        def _run_import_pytest():
+            try:
+                import pytest
+                # Running pytest.main is blocking; run inside thread.
+                rc = pytest.main(['-q'])
+                return rc, f'pytest.main() returned exit code {rc}', ''
+            except Exception as e:
+                return 2, "", f"Import/invoke pytest failed: {e}"
+
+        try:
+            # Prefer subprocess approach; run it in a thread.
+            rc, stdout, stderr = await asyncio.to_thread(_run_subprocess_pytest)
+
+            # If subprocess failed to start pytest (rc 2 often indicates invocation error), try import fallback
+            if rc != 0 and not stdout and (stderr and 'No module named' in stderr or not shutil.which('pytest')):
+                # Try import fallback
+                rc2, out2, err2 = await asyncio.to_thread(_run_import_pytest)
+                # Choose the import fallback outputs if they look meaningful
+                if out2 or err2:
+                    stdout = stdout + out2
+                    stderr = stderr + err2
+                rc = rc2
+
+            print("\n[pytest stdout]\n" + (stdout or "<no stdout>"))
+            if stderr:
+                print("\n[pytest stderr]\n" + stderr)
+            print(f"[Improver] pytest finished with exit code: {rc}\n")
+        except Exception as e:
+            print(f"[Improver] Failed to run pytest: {e}")
 
     async def run(self, goal, num_branches=3, iterations_per_branch=3):
         print(f"\nStarting workspace-aware improvement with goal: {goal}")
@@ -162,7 +219,7 @@ class Improver:
         if not integration:
             print("\nResult: No integration result available.")
             return
-        
+
         try:
             # Only read original content from existing files to edit, excluding protected
             original_files = [fp for fp in plan.existing_files_to_edit if fp not in self._protected_files]
@@ -187,3 +244,46 @@ class Improver:
             print(f"Failed to write changes: {e}")
             return
         print(f"--- Finished multi-file improvement for files: {sorted(filtered_files)} ---")
+
+        # After applying changes, run pytest in background if tests exist. Do not let failures block the application.
+        try:
+            if os.path.isdir('tests'):
+                try:
+                    # Try to schedule pytest as an asyncio background task
+                    asyncio.create_task(self._run_pytest())
+                except RuntimeError:
+                    # No running event loop to create a task; fall back to launching pytest in a background thread
+                    print("Warning: No running event loop; launching pytest in a background thread.")
+
+                    def _run_in_thread():
+                        try:
+                            # Prefer subprocess invocation
+                            try:
+                                completed = subprocess.run([sys.executable, '-m', 'pytest', '-q'], capture_output=True, text=True)
+                                stdout = completed.stdout or ""
+                                stderr = completed.stderr or ""
+                                rc = completed.returncode
+                            except Exception:
+                                # Fallback to import
+                                try:
+                                    import pytest
+                                    rc = pytest.main(['-q'])
+                                    stdout = f'Invoked pytest.main, return code {rc}'
+                                    stderr = ''
+                                except Exception as e:
+                                    rc = 2
+                                    stdout = ''
+                                    stderr = f'Failed to run pytest: {e}'
+
+                            print("\n[pytest stdout]\n" + (stdout or "<no stdout>"))
+                            if stderr:
+                                print("\n[pytest stderr]\n" + stderr)
+                            print(f"[Improver] pytest finished with exit code: {rc}\n")
+                        except Exception as e:
+                            print(f"[Improver] Failed to run pytest in background thread: {e}")
+
+                    threading.Thread(target=_run_in_thread, daemon=True).start()
+            else:
+                print("No 'tests' directory found; skipping pytest run.")
+        except Exception as e:
+            print(f"Warning: Failed to schedule pytest run: {e}")
