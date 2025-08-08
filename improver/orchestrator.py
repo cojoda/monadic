@@ -11,6 +11,7 @@ from .integration import IntegrationRunner
 from .models import PlanAndCode
 from .ast_utils import get_local_dependencies
 
+
 class Improver:
     """The main orchestrator that runs the end-to-end improvement process."""
     def __init__(self, safe_io: SafeIO):
@@ -44,10 +45,26 @@ class Improver:
         planning_task = PlanningAndScaffoldingTask(goal)
 
         # Validation and self-correction loop: generate plan and ensure existing_files_to_edit exist
-        max_retries = 2
+        max_retries = 2  # allowed correction attempts
         attempt = 0
         error_context: Optional[str] = None
         plan: Optional[ScaffoldingPlan] = None
+
+        def _path_variants(p: str) -> Set[str]:
+            # Create plausible variants of a path to check for existence
+            variants = set()
+            variants.add(p)
+            variants.add(os.path.normpath(p))
+            if p.startswith('./'):
+                variants.add(p[2:])
+                variants.add(os.path.normpath(p[2:]))
+            else:
+                variants.add('./' + p)
+                variants.add(os.path.normpath('./' + p))
+            # also try stripped leading slashes
+            variants.add(p.lstrip('./'))
+            variants.add(os.path.normpath(p.lstrip('./')))
+            return variants
 
         while True:
             # Try to pass error_context, but remain defensive if execute doesn't accept it
@@ -65,17 +82,16 @@ class Improver:
             if getattr(plan, 'reasoning', None):
                 print(f"\nLLM Reasoning from scaffolding plan:\n{plan.reasoning}\n")
 
-            # Validate that files listed as existing actually exist (try './' variant too)
+            # Validate that files listed as existing actually exist (try normalized variants)
             missing = []
             for f in plan.existing_files_to_edit:
-                if os.path.exists(f):
-                    continue
-                alt = f
-                if not f.startswith('./'):
-                    alt = os.path.join('.', f)
-                if os.path.exists(alt):
-                    continue
-                missing.append(f)
+                found = False
+                for variant in _path_variants(f):
+                    if os.path.exists(variant):
+                        found = True
+                        break
+                if not found:
+                    missing.append(f)
 
             if not missing:
                 break  # plan is valid
