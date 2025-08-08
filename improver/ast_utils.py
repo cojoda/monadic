@@ -15,6 +15,10 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     Returns:
         Set[str]: Set of normalized file paths of local dependencies.
     """
+    # Only analyze Python source files. Ignore other file types.
+    if not str(file_path).lower().endswith('.py'):
+        return set()
+
     dependencies = set()
     project_root = os.path.abspath(project_root)
     file_path = os.path.abspath(file_path)
@@ -23,10 +27,22 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     # Safely get standard library module names (available in Python 3.10+)
     stdlib_modules = getattr(sys, 'stdlib_module_names', set())
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        source = f.read()
+    # If file doesn't exist, nothing to do
+    if not os.path.exists(file_path):
+        return set()
 
-    tree = ast.parse(source, filename=file_path)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            source = f.read()
+    except Exception:
+        # If we can't read the file, treat as no dependencies.
+        return set()
+
+    try:
+        tree = ast.parse(source, filename=file_path)
+    except SyntaxError:
+        # If the Python file has syntax errors, we cannot reliably determine imports.
+        return set()
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

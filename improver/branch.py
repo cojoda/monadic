@@ -22,14 +22,38 @@ Second, provide the new, complete source codes for the files in the "edits" list
         msg = [f'**Goal:** {self.goal}']
         if 'llm_provider.py' in file_paths and 'llm_provider.py' not in protected_files and api_docs.strip():
             msg.append(f'\n**Context:**\n\n{api_docs}')
+
+        # helper: map file extension to code-fence language and display language
+        def _lang_info(fp: str):
+            ext = os.path.splitext(fp)[1].lstrip('.').lower()
+            if not ext:
+                return 'text', 'text'
+            mapping = {
+                'py': 'python',
+                'yaml': 'yaml',
+                'yml': 'yaml',
+                'json': 'json',
+                'md': 'markdown',
+                'ini': 'ini',
+                'cfg': 'ini',
+                'toml': 'toml',
+                'txt': 'text'
+            }
+            fence = mapping.get(ext, ext)
+            display = ext
+            return fence, display
+
         for fp, content in files_contents:
-            msg.extend([f'\n**File to improve:** `{fp}`\n', '```python', content, '```'])
+            fence_lang, display_lang = _lang_info(fp)
+            # Include language in the file heading and use it in the code fence
+            # Example: File to improve: pytest.ini (ini)
+            msg.extend([f"\n**File to improve:** `{fp}` ({display_lang})\n", f'```{fence_lang}', content, '```'])
             if syntax_errors and syntax_errors.get(fp):
                 err = syntax_errors[fp].replace('```', '` ` `')
-                msg.extend([f'\nThe previous attempt for `{fp}` resulted in a SyntaxError:', '```', err, '```'])
+                msg.extend([f"\nThe previous attempt for `{fp}` resulted in a SyntaxError:", '```', err, '```'])
         if protected_files:
             msg.append('\n--- Protected Files ---')
-            msg.append('You can use the following files for context, but you MUST NOT include them in your \'edits\' list.')
+            msg.append("You can use the following files for context, but you MUST NOT include them in your 'edits' list.")
             for pf in protected_files:
                 msg.append(f'- {pf}')
         return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(msg)}]
@@ -87,14 +111,21 @@ class BranchRunner:
                 filtered_edits = [e for e in parsed.edits if e.file_path not in self.protected_files]
                 all_ok = True
                 for e in filtered_edits:
-                    try:
-                        ast.parse(e.code)
+                    # Only perform AST syntax checking for Python files (.py)
+                    if e.file_path.lower().endswith('.py'):
+                        try:
+                            # parse with filename so SyntaxError messages are clearer
+                            ast.parse(e.code, filename=e.file_path)
+                            syntax_errors[e.file_path] = None
+                        except SyntaxError as se:
+                            msg = f"{se.msg} at line {se.lineno}, offset {se.offset}: {(se.text or '').strip()}"
+                            syntax_errors[e.file_path] = msg
+                            all_ok = False
+                            print(f"Branch-{self.branch_id} Iteration-{i + 1} Correction-{attempt}: SyntaxError in `{e.file_path}`: {msg}")
+                    else:
+                        # Non-Python files are not syntax-checked; mark as OK and pass through
                         syntax_errors[e.file_path] = None
-                    except SyntaxError as se:
-                        msg = f"{se.msg} at line {se.lineno}, offset {se.offset}: {(se.text or '').strip()}"
-                        syntax_errors[e.file_path] = msg
-                        all_ok = False
-                        print(f"Branch-{self.branch_id} Iteration-{i + 1} Correction-{attempt}: SyntaxError in `{e.file_path}`: {msg}")
+                # Update working copies of files
                 codes.update({e.file_path: e.code for e in filtered_edits})
                 if all_ok:
                     print(f"Branch-{self.branch_id} Iteration-{i + 1} Correction-{attempt}: Syntax check passed.")
