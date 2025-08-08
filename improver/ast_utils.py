@@ -16,7 +16,11 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
         Set[str]: Set of normalized file paths of local dependencies.
     """
     # Only analyze Python source files. Ignore other file types.
-    if not str(file_path).lower().endswith('.py'):
+    # Use case-insensitive check to be robust on different platforms.
+    try:
+        if not str(file_path).lower().endswith('.py'):
+            return set()
+    except Exception:
         return set()
 
     dependencies = set()
@@ -27,8 +31,8 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     # Safely get standard library module names (available in Python 3.10+)
     stdlib_modules = getattr(sys, 'stdlib_module_names', set())
 
-    # If file doesn't exist, nothing to do
-    if not os.path.exists(file_path):
+    # If file doesn't exist or is not a regular file, nothing to do
+    if not os.path.isfile(file_path):
         return set()
 
     try:

@@ -1,11 +1,12 @@
 import os
 import ast
 from functools import cached_property
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from .core import LLMTask
 from .models import PlanAndCode, FileEdit
 from safe_io import SafeIO
+
 
 class BranchTask(LLMTask):
     system_prompt = """
@@ -17,7 +18,7 @@ Second, provide the new, complete source codes for the files in the "edits" list
 """
     response_model = PlanAndCode
 
-    def construct_prompt(self, files_contents: List, syntax_errors: Dict[str, str] = None, api_docs: str = '', protected_files: List[str] = []) -> List[Dict[str, str]]:
+    def construct_prompt(self, files_contents: List[Tuple[str, str]], syntax_errors: Dict[str, str] = None, api_docs: str = '', protected_files: List[str] = []) -> List[Dict[str, str]]:
         file_paths = {fp for fp, _ in files_contents}
         msg = [f'**Goal:** {self.goal}']
         if 'llm_provider.py' in file_paths and 'llm_provider.py' not in protected_files and api_docs.strip():
@@ -49,6 +50,7 @@ Second, provide the new, complete source codes for the files in the "edits" list
             # Example: File to improve: pytest.ini (ini)
             msg.extend([f"\n**File to improve:** `{fp}` ({display_lang})\n", f'```{fence_lang}', content, '```'])
             if syntax_errors and syntax_errors.get(fp):
+                # Escape accidental triple backticks in errors for safety
                 err = syntax_errors[fp].replace('```', '` ` `')
                 msg.extend([f"\nThe previous attempt for `{fp}` resulted in a SyntaxError:", '```', err, '```'])
         if protected_files:
@@ -57,6 +59,7 @@ Second, provide the new, complete source codes for the files in the "edits" list
             for pf in protected_files:
                 msg.append(f'- {pf}')
         return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(msg)}]
+
 
 class BranchRunner:
     def __init__(self, goal: str, safe_io: SafeIO, protected_files: List[str], branch_id: int, iterations: int = 3, max_corrections: int = 3):
@@ -79,7 +82,7 @@ class BranchRunner:
 
     async def run(self, selected_files: List[str]) -> PlanAndCode:
         filtered = [fp for fp in selected_files if fp not in self.protected_files]
-        codes = {}
+        codes: Dict[str, str] = {}
         for fp in filtered:
             try:
                 codes[fp] = self.safe_io.read(fp)
@@ -89,7 +92,7 @@ class BranchRunner:
             print(f"Branch-{self.branch_id}: No files to process after reading.")
             return PlanAndCode(reasoning="No readable files.", edits=[])
 
-        syntax_errors = {}
+        syntax_errors: Dict[str, str] = {}
         parsed = None
         api_docs = self._api_docs_text
         print(f"Branch-{self.branch_id}: Starting {self.iterations} iteration(s) for {len(codes)} files...")
@@ -111,7 +114,7 @@ class BranchRunner:
                 filtered_edits = [e for e in parsed.edits if e.file_path not in self.protected_files]
                 all_ok = True
                 for e in filtered_edits:
-                    # Only perform AST syntax checking for Python files (.py)
+                    # Only perform AST syntax checking for Python files (.py), case-insensitive
                     if e.file_path.lower().endswith('.py'):
                         try:
                             # parse with filename so SyntaxError messages are clearer
