@@ -23,7 +23,7 @@ from .branch import BranchRunner
 from .integration import IntegrationRunner
 from .models import PlanAndCode
 from .ast_utils import get_local_dependencies
-from .failure_log import should_halt_for_goal, increment_failure, clear_goal
+from .failure_log import should_halt_for_goal, increment_failure, clear_goal, clear_failure_for_test, get_failures_for_goal
 # NOTE: Do NOT import TestFailureAnalysisTask at module import time to avoid
 # triggering LLM provider or other heavy imports during module import. We'll
 # import it dynamically when needed inside _run_pytest().
@@ -114,12 +114,22 @@ class Improver:
             stdout = ''
             stderr = str(e)
 
-        # Update failure log: if tests succeeded, clear log for this goal
+        # Update failure log: if tests succeeded, clear recorded failures for this goal
         try:
             if rc == 0:
                 try:
-                    clear_goal(goal)
-                    print(f"[Improver] Tests passed: cleared failure log for goal: {goal}")
+                    fails = get_failures_for_goal(goal)
+                    if fails:
+                        for tp in list(fails.keys()):
+                            try:
+                                clear_failure_for_test(goal, tp)
+                                print(f"[Improver] Tests passed: cleared failure log for goal: {goal}, test: {tp}")
+                            except Exception:
+                                pass
+                    else:
+                        # No per-test entries; clear whole goal as fallback
+                        clear_goal(goal)
+                        print(f"[Improver] Tests passed: cleared failure log for goal: {goal}")
                 except Exception:
                     pass
         except Exception:
@@ -148,7 +158,7 @@ class Improver:
                         if os.path.exists(candidate):
                             return candidate
                     # Match traceback lines like '  File "/path/to/file.py", line 12, in test_foo'
-                    m3 = re.search(r'File "([^\"]+\.py)", line \d+, in', output)
+                    m3 = re.search(r'File "([^"]+\.py)", line \d+, in', output)
                     if m3:
                         candidate = m3.group(1)
                         if os.path.exists(candidate):
@@ -260,7 +270,6 @@ class Improver:
                 print("Please ask a human developer to inspect the failing test(s) and the recent changes before attempting further automated improvements.")
                 # Optionally, show which tests are failing
                 try:
-                    from .failure_log import get_failures_for_goal
                     fails = get_failures_for_goal(goal)
                     if fails:
                         print("\nFailing tests and consecutive failure counts:")

@@ -9,16 +9,39 @@ LOG_PATH = os.environ.get('IMPROVER_TEST_FAILURE_LOG', 'test_failure_log.json')
 _DEFAULT_STRUCTURE = {"goals": {}}
 
 
+def _ensure_parent_dir(path: str) -> None:
+    try:
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+    except Exception:
+        # Best-effort only
+        pass
+
+
 def _read_log() -> Dict:
     """Read the JSON log from disk. Return a dict with at least the top-level shape.
 
     Best-effort: any failure returns a fresh default structure to avoid raising in orchestrator flows.
+    If the file does not exist, attempt to create it with the default structure (best-effort).
     """
     try:
         if not os.path.exists(LOG_PATH):
+            # try to create the file on disk to reduce races later
+            try:
+                _ensure_parent_dir(LOG_PATH)
+                _write_log(_DEFAULT_STRUCTURE.copy())
+            except Exception:
+                pass
             return _DEFAULT_STRUCTURE.copy()
+
         with open(LOG_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+            try:
+                data = json.load(f)
+            except Exception:
+                # Corrupt file: return default structure
+                return _DEFAULT_STRUCTURE.copy()
+
             if not isinstance(data, dict):
                 return _DEFAULT_STRUCTURE.copy()
             if 'goals' not in data or not isinstance(data['goals'], dict):
@@ -31,16 +54,22 @@ def _read_log() -> Dict:
 def _write_log(data: Dict) -> None:
     """Write the JSON log atomically if possible. Best-effort: swallow errors to avoid breaking flows."""
     try:
+        _ensure_parent_dir(LOG_PATH)
         tmp = LOG_PATH + '.tmp'
+        # write to temp file first
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
             f.flush()
-            os.fsync(f.fileno())
-        # Atomic replace where available
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                # ignore fsync failures on some platforms
+                pass
+        # atomic replace where available
         try:
             os.replace(tmp, LOG_PATH)
         except Exception:
-            # Fallback to non-atomic write
+            # fallback to non-atomic write
             with open(LOG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
     except Exception:
@@ -52,10 +81,14 @@ def get_failures_for_goal(goal: str) -> Dict[str, int]:
     """Return a mapping of test_path -> consecutive failure count for the given goal."""
     data = _read_log()
     g = data.get('goals', {}).get(goal, {})
-    out = {}
+    out: Dict[str, int] = {}
     for tp, info in (g or {}).items():
         try:
-            out[tp] = int(info.get('count', 0))
+            # support legacy shapes where value might be an int
+            if isinstance(info, dict):
+                out[tp] = int(info.get('count', 0))
+            else:
+                out[tp] = int(info)
         except Exception:
             out[tp] = 0
     return out
@@ -78,7 +111,6 @@ def increment_failure(goal: str, test_path: str) -> int:
     data = _read_log()
     goals = data.setdefault('goals', {})
     g = goals.setdefault(goal, {})
-    # Each entry is a dict containing at least 'count' and optionally 'last_failed'
     entry = g.setdefault(test_path, {})
     try:
         cnt = int(entry.get('count', 0)) + 1
@@ -103,7 +135,7 @@ def clear_failure_for_test(goal: str, test_path: str) -> None:
             del g[test_path]
         except Exception:
             pass
-    # If goal now empty, remove it
+    # if goal now empty, remove it
     if not g:
         try:
             del data['goals'][goal]
