@@ -23,7 +23,9 @@ from .branch import BranchRunner
 from .integration import IntegrationRunner
 from .models import PlanAndCode
 from .ast_utils import get_local_dependencies
-from .testing import TestFailureAnalysisTask
+# NOTE: Do NOT import TestFailureAnalysisTask at module import time to avoid
+# triggering LLM provider or other heavy imports during module import. We'll
+# import it dynamically when needed inside _run_pytest().
 
 
 class Improver:
@@ -107,6 +109,9 @@ class Improver:
             print(f"[Improver] pytest finished with exit code: {rc}\n")
         except Exception as e:
             print(f"[Improver] Failed to run pytest: {e}")
+            rc = 2
+            stdout = ''
+            stderr = str(e)
 
         # If tests failed, attempt to analyze the failure using the TestFailureAnalysisTask
         if rc != 0:
@@ -121,7 +126,6 @@ class Improver:
                         candidate = m.group(1)
                         if os.path.exists(candidate):
                             return candidate
-                        # try relative to cwd
                         rel = os.path.join(os.getcwd(), candidate)
                         if os.path.exists(rel):
                             return rel
@@ -129,6 +133,12 @@ class Improver:
                     m2 = re.search(r'(?m)^(FAILED|ERROR)\s+([^\s:]+\.py)', output)
                     if m2:
                         candidate = m2.group(2)
+                        if os.path.exists(candidate):
+                            return candidate
+                    # Match traceback lines like '  File "/path/to/file.py", line 12, in test_foo'
+                    m3 = re.search(r'File "([^"]+\.py)", line \d+, in', output)
+                    if m3:
+                        candidate = m3.group(1)
                         if os.path.exists(candidate):
                             return candidate
                     # Fallback: pick a test_*.py file in repo if present
@@ -141,46 +151,73 @@ class Improver:
                 test_path = _extract_failing_test_path(pytest_output)
                 test_source = None
                 if test_path:
+                    # Try safe_io.read first, fall back to direct open
                     try:
-                        test_source = self.safe_io.read(test_path)
+                        try:
+                            test_source = self.safe_io.read(test_path)
+                        except Exception:
+                            with open(test_path, 'r', encoding='utf-8') as _f:
+                                test_source = _f.read()
                     except Exception:
-                        # best-effort; ignore failure to read
                         test_source = None
 
-                # Create and invoke the analysis task
-                analysis_task = TestFailureAnalysisTask(goal="Analyze pytest failure and determine cause")
-                analysis_result = None
+                # Dynamically import TestFailureAnalysisTask here to avoid import-time issues
                 try:
-                    analysis_result = await analysis_task.execute(
-                        pytest_output=pytest_output,
-                        test_file_path=test_path,
-                        test_source=test_source
-                    )
-                except TypeError:
-                    # Some implementations may accept different kwarg names; try positional fallback
-                    try:
-                        analysis_result = await analysis_task.execute(pytest_output, test_path, test_source)
-                    except Exception:
-                        analysis_result = None
-
-                if analysis_result is None:
-                    print("[TestAnalysis] LLM returned no structured analysis.")
+                    from .testing import TestFailureAnalysisTask
+                except Exception as e:
+                    TestFailureAnalysisTask = None
+                    import_error = e
                 else:
-                    # analysis_result is a pydantic model instance (TestFailureAnalysis)
-                    try:
-                        verdict = getattr(analysis_result, 'verdict', None)
-                        confidence = getattr(analysis_result, 'confidence', None)
-                        explanation = getattr(analysis_result, 'explanation', None)
-                        suggested_fix = getattr(analysis_result, 'suggested_fix', None)
+                    import_error = None
 
-                        print("\n[Improver] Test Failure Analysis Result:")
-                        print(f"Verdict: {verdict or '<unknown>'} (confidence: {confidence or 'unknown'})")
-                        if explanation:
-                            print(f"Explanation: {explanation}")
-                        if suggested_fix:
-                            print(f"Suggested fix: {suggested_fix}")
-                    except Exception:
-                        print("[TestAnalysis] Received analysis but failed to read fields.")
+                if TestFailureAnalysisTask is None:
+                    print(f"[Improver] TestFailureAnalysisTask unavailable; skipping analysis.{' Import error: ' + str(import_error) if import_error else ''}")
+                else:
+                    analysis_task = TestFailureAnalysisTask(goal="Analyze pytest failure and determine cause")
+                    analysis_result = None
+                    try:
+                        analysis_result = await analysis_task.execute(
+                            pytest_output=pytest_output,
+                            test_file_path=test_path,
+                            test_source=test_source
+                        )
+                    except TypeError:
+                        # Try positional fallback
+                        try:
+                            analysis_result = await analysis_task.execute(pytest_output, test_path, test_source)
+                        except Exception:
+                            analysis_result = None
+
+                    if analysis_result is None:
+                        print("[TestAnalysis] LLM returned no structured analysis.")
+                    else:
+                        try:
+                            # Accept Pydantic model instance or dict-like parsed structure
+                            if hasattr(analysis_result, 'dict'):
+                                data = analysis_result.dict()
+                            elif isinstance(analysis_result, dict):
+                                data = analysis_result
+                            else:
+                                data = {
+                                    'verdict': getattr(analysis_result, 'verdict', None),
+                                    'confidence': getattr(analysis_result, 'confidence', None),
+                                    'explanation': getattr(analysis_result, 'explanation', None),
+                                    'suggested_fix': getattr(analysis_result, 'suggested_fix', None),
+                                }
+
+                            verdict = data.get('verdict')
+                            confidence = data.get('confidence')
+                            explanation = data.get('explanation')
+                            suggested_fix = data.get('suggested_fix')
+
+                            print("\n[Improver] Test Failure Analysis Result:")
+                            print(f"Verdict: {verdict or '<unknown>'} (confidence: {confidence or 'unknown'})")
+                            if explanation:
+                                print(f"Explanation: {explanation}")
+                            if suggested_fix:
+                                print(f"Suggested fix: {suggested_fix}")
+                        except Exception:
+                            print("[TestAnalysis] Received analysis but failed to read fields.")
 
             except Exception as e:
                 print(f"[Improver] Failed to perform test failure analysis: {e}")

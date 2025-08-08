@@ -25,6 +25,7 @@ class TestFailureAnalysisTask(LLMTask):
     suggested fix where possible.
     """
 
+    # Keep as a class attribute (consistent with other tasks in repo)
     system_prompt = (
         "You are an expert Python engineer experienced in testing and debugging.\n"
         "Given the output of a failing pytest run and the source code of the failing test,\n"
@@ -40,10 +41,11 @@ class TestFailureAnalysisTask(LLMTask):
     response_model = TestFailureAnalysis
 
     def construct_prompt(self, pytest_output: str, test_file_path: Optional[str] = None, test_source: Optional[str] = None) -> List[Dict[str, str]]:
-        lines = [f"**Goal:** Determine whether a failing pytest run indicates an application bug or a flawed test."]
+        lines: List[str] = [f"**Goal:** Determine whether a failing pytest run indicates an application bug or a flawed test."]
+
         lines.append("\n**Pytest Output (raw):**\n")
-        # Keep the output but limit length to avoid extremely long prompts
         po = (pytest_output or '')
+        # Keep the tail of the output which usually has the failing traceback; limit size
         if len(po) > 20000:
             po = po[-20000:]
             lines.append("<truncated tail of pytest output>\n")
@@ -53,9 +55,12 @@ class TestFailureAnalysisTask(LLMTask):
             lines.append(f"\n**Failing test file path:** {test_file_path}\n")
         if test_source:
             lines.append("\n**Failing test source:**\n")
-            lines.append(test_source)
+            ts = test_source
+            # Avoid extremely large prompt bodies
+            if len(ts) > 15000:
+                ts = ts[:15000] + "\n<test source truncated>"
+            lines.append(ts)
 
-        # Ask for structured JSON only
         lines.append("\nPlease return a single JSON object matching the TestFailureAnalysis schema with no extra commentary.")
 
         return [
