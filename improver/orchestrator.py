@@ -1,7 +1,7 @@
 import asyncio
 import os
 import yaml
-from typing import List, Set
+from typing import List, Set, Optional
 
 from safe_io import SafeIO
 
@@ -40,17 +40,66 @@ class Improver:
             print("No files found in project directory.")
             return
 
-        # Use PlanningAndScaffoldingTask instead of old file selection
+        # Use PlanningAndScaffoldingTask to produce the scaffolding plan
         planning_task = PlanningAndScaffoldingTask(goal)
-        plan: ScaffoldingPlan = await planning_task.execute(file_tree=file_tree)
 
-        if not plan:
-            print("PlanningAndScaffoldingTask returned no plan.")
-            return
+        # Validation and self-correction loop: generate plan and ensure existing_files_to_edit exist
+        max_retries = 2
+        attempt = 0
+        error_context: Optional[str] = None
+        plan: Optional[ScaffoldingPlan] = None
 
-        # Log the LLM reasoning to console for user visibility
-        if getattr(plan, 'reasoning', None):
-            print(f"\nLLM Reasoning from scaffolding plan:\n{plan.reasoning}\n")
+        while True:
+            # Try to pass error_context, but remain defensive if execute doesn't accept it
+            try:
+                plan = await planning_task.execute(file_tree=file_tree, error_context=error_context)
+            except TypeError:
+                # Fallback for LLMTask implementations that don't forward kwargs
+                plan = await planning_task.execute(file_tree=file_tree)
+
+            if not plan:
+                print("PlanningAndScaffoldingTask returned no plan.")
+                return
+
+            # Log reasoning for visibility
+            if getattr(plan, 'reasoning', None):
+                print(f"\nLLM Reasoning from scaffolding plan:\n{plan.reasoning}\n")
+
+            # Validate that files listed as existing actually exist (try './' variant too)
+            missing = []
+            for f in plan.existing_files_to_edit:
+                if os.path.exists(f):
+                    continue
+                alt = f
+                if not f.startswith('./'):
+                    alt = os.path.join('.', f)
+                if os.path.exists(alt):
+                    continue
+                missing.append(f)
+
+            if not missing:
+                break  # plan is valid
+
+            # Build error message and retry
+            missing_list = "\n".join(missing)
+            error_message = (
+                "The previous scaffolding plan references the following files that were not found in the repository:\n"
+                f"{missing_list}\n\n"
+                "Please either (a) update 'existing_files_to_edit' to refer only to files that currently exist in the project, "
+                "or (b) if those files should be created as part of the scaffolding, list them under 'new_files_to_create'. "
+                "Provide a corrected ScaffoldingPlan JSON object and include reasoning describing the changes."
+            )
+
+            attempt += 1
+            print(f"Validation error in scaffolding plan detected (attempt {attempt}/{max_retries}). Missing files:\n{missing_list}\n")
+
+            if attempt > max_retries:
+                print("Exceeded maximum planning retries. Aborting improvement process due to invalid scaffolding plan.")
+                return
+
+            print("Re-running PlanningAndScaffoldingTask to correct plan based on error context...")
+            error_context = error_message
+            # loop will re-run planning with error_context
 
         # Create new files with empty content
         for new_file in plan.new_files_to_create:
