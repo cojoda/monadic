@@ -6,9 +6,9 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Implement the deadlock prevention mechanism.
+- Implement test-driven correction by generating new goals for bug fixes.
 
-This will be achieved by:
-1.  Creating a simple JSON-based logger, `test_failure_log.json`, to keep track of which tests have failed and how many times in a row.
-2.  In `improver/orchestrator.py`, before running a new improvement, check this log. If a test has failed on the previous two attempts for the same goal, halt the process and print a message advising a human to review the failing test.
-3.  If a test run succeeds, the log for that test should be cleared.
+This involves updating `improver/orchestrator.py`:
+1.  After a test run, if the `TestFailureAnalysisTask` determines that the application code is buggy, the system must not apply the proposed changes.
+2.  Instead, it must construct a new, detailed goal string that specifies which file and test failed, and what the error was. For example: "Fix the bug in `improver/orchestrator.py` that causes the test `tests/test_orchestrator.py::test_new_feature` to fail."
+3.  The system will then print this new suggested goal to the console, prefixed with a clear message for the user, and then gracefully exit.
