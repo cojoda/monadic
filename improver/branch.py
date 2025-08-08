@@ -47,7 +47,7 @@ Second, provide the new, complete source codes for the files in the "edits" list
         for fp, content in files_contents:
             fence_lang, display_lang = _lang_info(fp)
             # Include language in the file heading and use it in the code fence
-            # Example: File to improve: pytest.ini (ini)
+            # Example: File to improve: `pytest.ini` (ini)
             msg.extend([f"\n**File to improve:** `{fp}` ({display_lang})\n", f'```{fence_lang}', content, '```'])
             if syntax_errors and syntax_errors.get(fp):
                 # Escape accidental triple backticks in errors for safety
@@ -81,6 +81,7 @@ class BranchRunner:
         )
 
     async def run(self, selected_files: List[str]) -> PlanAndCode:
+        # Filter out protected files from the selected files early
         filtered = [fp for fp in selected_files if fp not in self.protected_files]
         codes: Dict[str, str] = {}
         for fp in filtered:
@@ -115,7 +116,12 @@ class BranchRunner:
                 all_ok = True
                 for e in filtered_edits:
                     # Only perform AST syntax checking for Python files (.py), case-insensitive
-                    if e.file_path.lower().endswith('.py'):
+                    try:
+                        _, ext = os.path.splitext(e.file_path)
+                    except Exception:
+                        ext = ''
+
+                    if ext.lower() == '.py':
                         try:
                             # parse with filename so SyntaxError messages are clearer
                             ast.parse(e.code, filename=e.file_path)
@@ -126,7 +132,7 @@ class BranchRunner:
                             all_ok = False
                             print(f"Branch-{self.branch_id} Iteration-{i + 1} Correction-{attempt}: SyntaxError in `{e.file_path}`: {msg}")
                     else:
-                        # Non-Python files are not syntax-checked; mark as OK and pass through
+                        # Non-Python files are intentionally not syntax-checked; treat as OK and pass through
                         syntax_errors[e.file_path] = None
                 # Update working copies of files
                 codes.update({e.file_path: e.code for e in filtered_edits})
@@ -142,7 +148,9 @@ class BranchRunner:
         unresolved = [fp for fp, err in syntax_errors.items() if err]
         if unresolved:
             print(f"Branch-{self.branch_id}: Finished with unresolved syntax errors in files: {unresolved}")
+        # Only include non-protected files in final edits
+        final_edits = [FileEdit(file_path=fp, code=code) for fp, code in codes.items() if fp not in self.protected_files]
         return PlanAndCode(
             reasoning=parsed.reasoning if parsed else "",
-            edits=[FileEdit(file_path=fp, code=code) for fp, code in codes.items()]
+            edits=final_edits
         )

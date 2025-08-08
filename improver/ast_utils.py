@@ -2,11 +2,15 @@ import ast
 import os
 import sys
 from typing import Set
+from pathlib import Path
 
 
 def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     """
     Parse the given Python file and find local project dependencies from import statements.
+
+    This function only attempts to parse files that clearly have a .py extension
+    (case-insensitive). Non-Python files are ignored and result in an empty set.
 
     Args:
         file_path (str): Path to the Python source file to analyze.
@@ -15,21 +19,31 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     Returns:
         Set[str]: Set of normalized file paths of local dependencies.
     """
-    # Only analyze Python source files. Ignore other file types.
-    # Use case-insensitive check to be robust on different platforms.
+    # Be robust to Path-like inputs and ensure we only handle .py files
     try:
-        if not str(file_path).lower().endswith('.py'):
-            return set()
+        p = Path(file_path)
     except Exception:
+        return set()
+
+    if p.suffix.lower() != '.py':
         return set()
 
     dependencies = set()
     project_root = os.path.abspath(project_root)
-    file_path = os.path.abspath(file_path)
+    file_path = os.path.abspath(str(p))
     file_dir = os.path.dirname(file_path)
 
     # Safely get standard library module names (available in Python 3.10+)
-    stdlib_modules = getattr(sys, 'stdlib_module_names', set())
+    stdlib_modules = set()
+    try:
+        stdlib_modules = set(getattr(sys, 'stdlib_module_names', set()))
+    except Exception:
+        stdlib_modules = set()
+    # Also include builtin module names as a fallback
+    try:
+        stdlib_modules |= set(getattr(sys, 'builtin_module_names', ()))
+    except Exception:
+        pass
 
     # If file doesn't exist or is not a regular file, nothing to do
     if not os.path.isfile(file_path):
@@ -50,11 +64,9 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            # For 'import module[.submodule]', check root module
             for alias in node.names:
                 root_name = alias.name.split('.')[0]
                 if root_name in stdlib_modules:
-                    # Skip standard library modules
                     continue
 
                 parts = alias.name.split('.')
@@ -81,7 +93,6 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
 
             root_name = module.split('.')[0] if module else None
             if root_name and root_name in stdlib_modules:
-                # Skip standard library modules
                 continue
 
             if level > 0:
