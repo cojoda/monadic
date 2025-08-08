@@ -6,21 +6,9 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Implement a validation and self-correction loop for the planning phase.
+- Make the system file-type aware to handle non-Python files correctly.
 
-In improver/orchestrator.py, after the initial ScaffoldingPlan is generated, add a validation and self-correction loop to ensure the plan is viable before proceeding.
-
-The new logic should:
-
-Iterate through the existing_files_to_edit list from the generated plan.
-
-For each file, use os.path.exists() to verify it is present on the filesystem.
-
-If any file does not exist, the plan is considered invalid. The system should then:
-a.  Construct a detailed error message explaining which file was not found.
-b.  Re-run the PlanningAndScaffoldingTask, providing the error message as new context to correct the plan.
-c.  This retry loop should be attempted a maximum of 2 times before failing.
-
-To support this, improver/planning.py must also be modified:
-
-The construct_prompt method in PlanningAndScaffoldingTask needs to be updated to accept an optional error context string, which will be added to the prompt to guide the AI's correction.
+This involves the following steps:
+1.  Modify `improver/ast_utils.py` in `get_local_dependencies` to only parse files with a `.py` extension. Other file types should be ignored.
+2.  Modify `improver/branch.py` in the `BranchRunner.run` method to only perform syntax checking on files with a `.py` extension. Non-Python files should be passed through without validation.
+3.  Update the `construct_prompt` in `improver/branch.py` to specify the language of the file in the prompt when presenting the file to the LLM. For example, instead of just `File to improve: pytest.ini`, it should say `File to improve: pytest.ini (ini)`.
