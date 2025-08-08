@@ -6,10 +6,8 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Create the initial testing infrastructure.
+- Improve dependency analysis to differentiate between local modules and installed packages.
 
-This involves the following steps:
-1.  Create a `tests` directory for all test files.
-2.  Add a `pytest.ini` file to configure `pytest`.
-3.  Create a simple placeholder test in `tests/test_placeholder.py` that always passes to ensure the test runner is working correctly.
-4.  Modify `improver/orchestrator.py`: After the integration step is complete, run `pytest` to execute the tests. For now, the results should just be printed, and a failing test should not block the application of the changes.
+This will involve the following changes to `improver/ast_utils.py`:
+1.  **Check Standard Library**: Before assuming a module is a local file, check if it's part of Python's standard library. If it is, ignore it.
+2.  **Validate Local Paths**: When an import is not in the standard library, ensure that the file path it resolves to is actually within the project directory. This will prevent the agent from trying to find installed packages in the local file system.
