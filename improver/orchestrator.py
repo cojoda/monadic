@@ -23,6 +23,7 @@ from .branch import BranchRunner
 from .integration import IntegrationRunner
 from .models import PlanAndCode
 from .ast_utils import get_local_dependencies
+from .failure_log import should_halt_for_goal, increment_failure, clear_goal
 # NOTE: Do NOT import TestFailureAnalysisTask at module import time to avoid
 # triggering LLM provider or other heavy imports during module import. We'll
 # import it dynamically when needed inside _run_pytest().
@@ -50,7 +51,7 @@ class Improver:
         files.sort()
         return files
 
-    async def _run_pytest(self) -> None:
+    async def _run_pytest(self, goal: str) -> None:
         """Run pytest in a background thread and print results. Failures do not raise here.
 
         The routine prefers running pytest via `python -m pytest` using the current
@@ -113,6 +114,17 @@ class Improver:
             stdout = ''
             stderr = str(e)
 
+        # Update failure log: if tests succeeded, clear log for this goal
+        try:
+            if rc == 0:
+                try:
+                    clear_goal(goal)
+                    print(f"[Improver] Tests passed: cleared failure log for goal: {goal}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # If tests failed, attempt to analyze the failure using the TestFailureAnalysisTask
         if rc != 0:
             try:
@@ -136,7 +148,7 @@ class Improver:
                         if os.path.exists(candidate):
                             return candidate
                     # Match traceback lines like '  File "/path/to/file.py", line 12, in test_foo'
-                    m3 = re.search(r'File "([^"]+\.py)", line \d+, in', output)
+                    m3 = re.search(r'File "([^\"]+\.py)", line \d+, in', output)
                     if m3:
                         candidate = m3.group(1)
                         if os.path.exists(candidate):
@@ -149,6 +161,23 @@ class Improver:
                     return None
 
                 test_path = _extract_failing_test_path(pytest_output)
+
+                # Record failure in the log if we can identify a test path
+                try:
+                    if test_path:
+                        try:
+                            new_count = increment_failure(goal, test_path)
+                            print(f"[Improver] Recorded failure for goal='{goal}', test='{test_path}'. Consecutive failures: {new_count}")
+                            if new_count >= 2:
+                                print("\n[Improver] WARNING: This test has failed on at least two consecutive improvement attempts for the same goal.")
+                                print("Please ask a human developer to review the failing test and the suggested changes to avoid a deadlock in the improvement loop.\n")
+                        except Exception:
+                            pass
+                    else:
+                        print("[Improver] Could not determine failing test file from pytest output; not recording to failure log.")
+                except Exception:
+                    pass
+
                 test_source = None
                 if test_path:
                     # Try safe_io.read first, fall back to direct open
@@ -224,6 +253,26 @@ class Improver:
 
     async def run(self, goal, num_branches=3, iterations_per_branch=3):
         print(f"\nStarting workspace-aware improvement with goal: {goal}")
+        # Deadlock prevention: check failure log before starting a new improvement
+        try:
+            if should_halt_for_goal(goal, threshold=2):
+                print("\n[Improver] Aborting improvement: one or more tests associated with this goal have failed on the previous two consecutive improvement attempts.")
+                print("Please ask a human developer to inspect the failing test(s) and the recent changes before attempting further automated improvements.")
+                # Optionally, show which tests are failing
+                try:
+                    from .failure_log import get_failures_for_goal
+                    fails = get_failures_for_goal(goal)
+                    if fails:
+                        print("\nFailing tests and consecutive failure counts:")
+                        for tp, cnt in fails.items():
+                            print(f" - {tp}: {cnt}")
+                except Exception:
+                    pass
+                return
+        except Exception:
+            # On any error reading the failure log, continue normally to avoid blocking improvements
+            pass
+
         file_tree = self._scan_project_files()
         if not file_tree:
             print("No files found in project directory.")
@@ -387,14 +436,14 @@ class Improver:
             if loop and loop.is_running():
                 # Schedule the coroutine on the current loop
                 try:
-                    asyncio.create_task(self._run_pytest())
+                    asyncio.create_task(self._run_pytest(goal))
                 except Exception as e:
                     print(f"Warning: Failed to schedule pytest as an asyncio task: {e}")
                     # Fallback: run the coroutine in a background thread with its own loop
-                    threading.Thread(target=lambda: asyncio.run(self._run_pytest()), daemon=True).start()
+                    threading.Thread(target=lambda: asyncio.run(self._run_pytest(goal)), daemon=True).start()
             else:
                 # No running event loop; launch pytest in a background thread running its own event loop
                 print("No running event loop; launching pytest in a background thread.")
-                threading.Thread(target=lambda: asyncio.run(self._run_pytest()), daemon=True).start()
+                threading.Thread(target=lambda: asyncio.run(self._run_pytest(goal)), daemon=True).start()
         except Exception as e:
             print(f"Warning: Failed to schedule pytest run: {e}")
