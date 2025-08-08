@@ -3,13 +3,14 @@ import os
 import sys
 import importlib.util
 import sysconfig
+import site
 from typing import Set
 from pathlib import Path
 
 
 def _normalize_path(p: str) -> str:
     try:
-        # Use realpath to resolve symlinks, then normalize
+        # Resolve symlinks and normalize
         return os.path.normpath(os.path.realpath(os.path.abspath(p)))
     except Exception:
         return p
@@ -28,8 +29,7 @@ def _is_in_project(path: str, project_root: str) -> bool:
 def _get_stdlib_paths():
     """Return a set of filesystem paths that are considered part of the stdlib.
 
-    This uses sysconfig to determine the stdlib and platstdlib locations and
-    normalizes them for prefix checking.
+    Uses sysconfig and sensible fallbacks.
     """
     paths = set()
     try:
@@ -41,7 +41,7 @@ def _get_stdlib_paths():
     except Exception:
         pass
 
-    # Also include sys.base_prefix/lib... fallback for some environments
+    # Also include a common base/lib/pythonX.Y fallback
     try:
         base = getattr(sys, "base_prefix", None) or getattr(sys, "prefix", None)
         if base:
@@ -51,28 +51,94 @@ def _get_stdlib_paths():
     except Exception:
         pass
 
-    # Normalize and remove empty entries
+    # Try to include the directory containing some builtin module file (best-effort)
+    try:
+        import os as _os_mod
+        of = getattr(_os_mod, '__file__', None)
+        if of:
+            paths.add(_normalize_path(os.path.dirname(of)))
+    except Exception:
+        pass
+
+    return {p for p in paths if p}
+
+
+def _get_site_paths():
+    """Return a set of filesystem paths that are considered installed package locations (site-packages).
+
+    Includes global site-packages, user site-packages, and heuristics from sys.path.
+    """
+    paths = set()
+    try:
+        if hasattr(site, "getsitepackages"):
+            for p in site.getsitepackages():
+                if p:
+                    paths.add(_normalize_path(p))
+    except Exception:
+        pass
+
+    try:
+        usersite = site.getusersitepackages()
+        if usersite:
+            paths.add(_normalize_path(usersite))
+    except Exception:
+        pass
+
+    try:
+        for p in sys.path:
+            if not p:
+                continue
+            lp = p.lower()
+            if 'site-packages' in lp or 'dist-packages' in lp:
+                paths.add(_normalize_path(p))
+    except Exception:
+        pass
+
+    # Prefix-based guesses
+    try:
+        base = getattr(sys, "base_prefix", None) or getattr(sys, "prefix", None)
+        if base:
+            pyver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+            candidate = os.path.join(base, "lib", "python", pyver, "site-packages")
+            paths.add(_normalize_path(candidate))
+            candidate2 = os.path.join(base, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages")
+            paths.add(_normalize_path(candidate2))
+    except Exception:
+        pass
+
     return {p for p in paths if p}
 
 
 _STD_PATHS = _get_stdlib_paths()
+_SITE_PATHS = _get_site_paths()
+
+
+def _is_stdlib_path(path: str) -> bool:
+    """Return True if the given filesystem path is located inside any known stdlib path."""
+    try:
+        if not path:
+            return False
+        p = _normalize_path(path)
+        for sp in _STD_PATHS:
+            if p == sp or p.startswith(sp + os.sep):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _is_stdlib_module(module_name: str) -> bool:
     """Return True if module_name is part of the Python standard library.
 
-    The function accepts dotted names and will check the root name first using
-    fast builtin lists if available. If not conclusively identified, it will
-    attempt to find a spec and inspect the origin or package locations to see
-    whether the implementation lives inside one of the stdlib directories or is
-    a builtin/frozen module.
+    Accepts dotted names; checks fast builtin lists when available and falls back
+    to inspecting importlib.ModuleSpec origin/locations.
     """
     if not module_name:
         return False
 
     root = module_name.split(".")[0]
 
-    # Check fast builtin lists if available
+    # Fast checks
     try:
         std_names = set(getattr(sys, "stdlib_module_names", set()))
     except Exception:
@@ -85,7 +151,7 @@ def _is_stdlib_module(module_name: str) -> bool:
     if root in std_names:
         return True
 
-    # Try to inspect spec origin
+    # Inspect spec origin/locations
     try:
         spec = importlib.util.find_spec(root)
     except Exception:
@@ -97,25 +163,20 @@ def _is_stdlib_module(module_name: str) -> bool:
     origin = getattr(spec, "origin", None)
     locations = getattr(spec, "submodule_search_locations", None)
 
-    # Builtin/frozen modules: treat as stdlib
+    # builtin/frozen
     if origin in (None, "built-in", "frozen") and not locations:
         return True
 
-    # If origin is a filesystem path: check if it's under any stdlib path
     if isinstance(origin, str):
         origin_norm = _normalize_path(origin)
-        for sp in _STD_PATHS:
-            if origin_norm == sp or origin_norm.startswith(sp + os.sep):
-                return True
+        if _is_stdlib_path(origin_norm):
+            return True
 
-    # For namespace/package locations, check each location
     if locations:
         for loc in locations:
             try:
-                loc_norm = _normalize_path(loc)
-                for sp in _STD_PATHS:
-                    if loc_norm == sp or loc_norm.startswith(sp + os.sep):
-                        return True
+                if _is_stdlib_path(_normalize_path(loc)):
+                    return True
             except Exception:
                 continue
 
@@ -125,7 +186,8 @@ def _is_stdlib_module(module_name: str) -> bool:
 def _spec_points_to_project(spec, project_root: str) -> str:
     """
     Given a ModuleSpec, determine if it points to a file/location inside project_root.
-    If so, return a normalized path to the module file (or __init__.py for packages). Otherwise return an empty string.
+    If so, return a normalized path to the module file (or __init__.py for packages).
+    Otherwise return an empty string.
     """
     if not spec:
         return ''
@@ -133,74 +195,124 @@ def _spec_points_to_project(spec, project_root: str) -> str:
     origin = getattr(spec, 'origin', None)
     locations = getattr(spec, 'submodule_search_locations', None)
 
-    # Builtin/frozen modules
+    # builtin/frozen
     if origin in (None, 'built-in', 'frozen') and not locations:
-        # builtin/frozen -> not a project file
         return ''
 
     proj_root = _normalize_path(project_root)
 
-    # If there are submodule_search_locations (package directories), check them
+    # If origin points into stdlib or site-packages, treat as not in-project
+    try:
+        if isinstance(origin, str):
+            origin_norm = _normalize_path(origin)
+            for sp in _STD_PATHS:
+                if origin_norm == sp or origin_norm.startswith(sp + os.sep):
+                    return ''
+            for sp in _SITE_PATHS:
+                if origin_norm == sp or origin_norm.startswith(sp + os.sep):
+                    return ''
+    except Exception:
+        pass
+
+    # If package directories are present, check them
     if locations:
         for loc in locations:
             try:
-                if _is_in_project(loc, proj_root):
-                    init_py = os.path.join(loc, '__init__.py')
+                loc_norm = _normalize_path(loc)
+                # Skip stdlib or site-packages
+                skip = False
+                for sp in _STD_PATHS:
+                    if loc_norm == sp or loc_norm.startswith(sp + os.sep):
+                        skip = True
+                        break
+                if skip:
+                    continue
+                for sp in _SITE_PATHS:
+                    if loc_norm == sp or loc_norm.startswith(sp + os.sep):
+                        skip = True
+                        break
+                if skip:
+                    continue
+
+                if _is_in_project(loc_norm, proj_root):
+                    init_py = os.path.join(loc_norm, '__init__.py')
                     if os.path.exists(init_py):
                         return _normalize_path(init_py)
-                    return _normalize_path(loc)
+                    return _normalize_path(loc_norm)
             except Exception:
                 continue
         return ''
 
-    # Otherwise, origin should be a file path
+    # Otherwise origin should be a file path
     if origin and isinstance(origin, str):
         origin_norm = _normalize_path(origin)
 
-        # If the origin is a compiled file inside __pycache__ or a .pyc, try to map to .py
+        # Map .pyc / __pycache__ to .py where possible
         if origin_norm.endswith('.pyc') or '__pycache__' in origin_norm.split(os.sep):
-            # Attempt simple mapping to .py
             try:
-                # remove __pycache__ components
                 parts = origin_norm.split(os.sep)
                 if '__pycache__' in parts:
                     idx = parts.index('__pycache__')
-                    # drop the __pycache__ piece
                     parts.pop(idx)
-                    # last part might be modulename.cpython-38.pyc -> try to strip suffix after first dot
                     last = parts[-1]
                     if '.py' in last:
-                        # map to .py (best-effort)
                         base = last.split('.py')[0]
                         parts[-1] = base + '.py'
                     origin_norm = _normalize_path(os.sep.join(parts))
                 else:
                     # .pyc -> .py (best-effort)
-                    origin_norm = origin_norm[:-1]
+                    if origin_norm.endswith('.pyc'):
+                        origin_norm = origin_norm[:-1]
             except Exception:
                 pass
 
+        # Exclude stdlib or site-packages
+        try:
+            for sp in _STD_PATHS:
+                if origin_norm == sp or origin_norm.startswith(sp + os.sep):
+                    return ''
+            for sp in _SITE_PATHS:
+                if origin_norm == sp or origin_norm.startswith(sp + os.sep):
+                    return ''
+        except Exception:
+            pass
+
         if _is_in_project(origin_norm, proj_root):
-            # If it's a file in the project, return it
             return origin_norm
     return ''
+
+
+def _is_valid_project_path(candidate: str, project_root: str) -> bool:
+    """Return True if candidate exists, is inside project_root, and is not in stdlib/site-packages."""
+    try:
+        if not candidate:
+            return False
+        candidate_norm = _normalize_path(candidate)
+        if not os.path.exists(candidate_norm):
+            return False
+        if not _is_in_project(candidate_norm, project_root):
+            return False
+        if _is_stdlib_path(candidate_norm):
+            return False
+        # Also ensure it's not inside site-packages locations
+        for sp in _SITE_PATHS:
+            try:
+                if candidate_norm == sp or candidate_norm.startswith(sp + os.sep):
+                    return False
+            except Exception:
+                continue
+        return True
+    except Exception:
+        return False
 
 
 def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     """
     Parse the given Python file and find local project dependencies from import statements.
 
-    This function only attempts to parse files that clearly have a .py extension
-    (case-insensitive). Non-Python files are ignored and result in an empty set.
-
-    Args:
-        file_path (str): Path to the Python source file to analyze.
-        project_root (str): Root directory of the project for absolute import base.
-
-    Returns:
-        Set[str]: Set of normalized file paths of local dependencies.
+    Only .py files are analyzed. Returns normalized file paths for dependencies
+    that are inside project_root and are not standard-library or installed packages.
     """
-    # Be robust to Path-like inputs and ensure we only handle .py files
     try:
         p = Path(file_path)
     except Exception:
@@ -214,7 +326,6 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
     file_path = _normalize_path(str(p))
     file_dir = os.path.dirname(file_path)
 
-    # If file doesn't exist or is not a regular file, nothing to do
     if not os.path.isfile(file_path):
         return set()
 
@@ -222,13 +333,11 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
         with open(file_path, 'r', encoding='utf-8') as f:
             source = f.read()
     except Exception:
-        # If we can't read the file, treat as no dependencies.
         return set()
 
     try:
         tree = ast.parse(source, filename=file_path)
     except SyntaxError:
-        # If the Python file has syntax errors, we cannot reliably determine imports.
         return set()
 
     for node in ast.walk(tree):
@@ -237,24 +346,24 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
                 full_name = alias.name
                 root_name = full_name.split('.')[0]
 
-                # Ignore stdlib modules right away
-                if _is_stdlib_module(root_name):
+                # Ignore stdlib modules quickly
+                if _is_stdlib_module(root_name) or _is_stdlib_module(full_name):
                     continue
 
-                # Try to use importlib to see where this module would come from
+                # Ask importlib where it would come from
                 spec = None
                 try:
                     spec = importlib.util.find_spec(full_name)
                 except Exception:
                     spec = None
 
-                # If spec points into the project, use that path
+                # If spec points into the project, accept it
                 spec_path = _spec_points_to_project(spec, project_root)
-                if spec_path:
+                if spec_path and _is_valid_project_path(spec_path, project_root):
                     dependencies.add(spec_path)
                     continue
 
-                # If spec exists but points outside project (installed package or stdlib), ignore
+                # If spec exists but not in project, treat as external and skip
                 if spec is not None:
                     continue
 
@@ -263,31 +372,25 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
                 dep_path = os.path.join(project_root, *parts)
 
                 if os.path.isdir(dep_path):
-                    dep_path = os.path.join(dep_path, '__init__.py')
+                    dep_candidate = os.path.join(dep_path, '__init__.py')
                 else:
-                    dep_path += '.py'
+                    dep_candidate = dep_path + '.py'
 
-                if not os.path.exists(dep_path):
-                    # Not present inside project
-                    continue
-
-                if not _is_in_project(dep_path, project_root):
-                    continue
-
-                dependencies.add(_normalize_path(dep_path))
+                if _is_valid_project_path(dep_candidate, project_root):
+                    dependencies.add(_normalize_path(dep_candidate))
 
         elif isinstance(node, ast.ImportFrom):
             module = node.module
-            level = node.level  # number of leading dots
+            level = node.level
 
+            # Determine root name for stdlib check
             root_name = module.split('.')[0] if module else None
             if root_name and _is_stdlib_module(root_name):
                 continue
 
             if level > 0:
-                # Relative import: go up `level` directories from current file's directory
+                # Relative import: ascend from file_dir
                 base_dir = file_dir
-                # level==1 means current package (the package containing file), so don't go up
                 for _ in range(max(0, level - 1)):
                     base_dir = os.path.dirname(base_dir)
 
@@ -295,31 +398,23 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
                     parts = module.split('.')
                     dep_path = os.path.join(base_dir, *parts)
                     if os.path.isdir(dep_path):
-                        dep_path = os.path.join(dep_path, '__init__.py')
+                        dep_candidate = os.path.join(dep_path, '__init__.py')
                     else:
-                        dep_path += '.py'
+                        dep_candidate = dep_path + '.py'
                 else:
-                    # e.g. from . import something -> check package's __init__.py or adjacent module
-                    dep_path = os.path.join(base_dir, '__init__.py')
+                    dep_candidate = os.path.join(base_dir, '__init__.py')
 
-                if not os.path.exists(dep_path):
-                    continue
-
-                if not _is_in_project(dep_path, project_root):
-                    continue
-
-                dependencies.add(_normalize_path(dep_path))
+                if _is_valid_project_path(dep_candidate, project_root):
+                    dependencies.add(_normalize_path(dep_candidate))
 
             else:
                 # Absolute import
                 if module is None:
                     continue
 
-                # If the root module is stdlib, skip
-                if _is_stdlib_module(module.split('.')[0]):
+                if _is_stdlib_module(module.split('.')[0]) or _is_stdlib_module(module):
                     continue
 
-                # Try importlib first
                 spec = None
                 try:
                     spec = importlib.util.find_spec(module)
@@ -327,39 +422,36 @@ def get_local_dependencies(file_path: str, project_root: str = '.') -> Set[str]:
                     spec = None
 
                 spec_path = _spec_points_to_project(spec, project_root)
-                if spec_path:
+                if spec_path and _is_valid_project_path(spec_path, project_root):
                     dependencies.add(spec_path)
                     continue
 
                 if spec is not None:
-                    # module exists but outside project (external package or stdlib)
+                    # Module is present but outside project -> external
                     continue
 
                 parts = module.split('.')
 
-                # First attempt: resolve relative to project root
+                # Resolve relative to project root first
                 dep_path_proj = os.path.join(project_root, *parts)
                 if os.path.isdir(dep_path_proj):
                     candidate_path_proj = os.path.join(dep_path_proj, '__init__.py')
                 else:
                     candidate_path_proj = dep_path_proj + '.py'
 
-                if os.path.exists(candidate_path_proj) and _is_in_project(candidate_path_proj, project_root):
+                if _is_valid_project_path(candidate_path_proj, project_root):
                     dependencies.add(_normalize_path(candidate_path_proj))
                     continue
 
-                # Fallback: resolve relative to current file directory
+                # Fallback relative to current file directory
                 dep_path_file = os.path.join(file_dir, *parts)
                 if os.path.isdir(dep_path_file):
                     candidate_path_file = os.path.join(dep_path_file, '__init__.py')
                 else:
                     candidate_path_file = dep_path_file + '.py'
 
-                if os.path.exists(candidate_path_file) and _is_in_project(candidate_path_file, project_root):
+                if _is_valid_project_path(candidate_path_file, project_root):
                     dependencies.add(_normalize_path(candidate_path_file))
                     continue
-
-                # Could not resolve dependency path or it's external
-                continue
 
     return dependencies
