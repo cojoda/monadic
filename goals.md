@@ -6,9 +6,7 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Make the system file-type aware to handle non-Python files correctly.
+- Make the IntegrationRunner file-type aware.
 
-This involves the following steps:
-1.  Modify `improver/ast_utils.py` in `get_local_dependencies` to only parse files with a `.py` extension. Other file types should be ignored.
-2.  Modify `improver/branch.py` in the `BranchRunner.run` method to only perform syntax checking on files with a `.py` extension. Non-Python files should be passed through without validation.
-3.  Update the `construct_prompt` in `improver/branch.py` to specify the language of the file in the prompt when presenting the file to the LLM. For example, instead of just `File to improve: pytest.ini`, it should say `File to improve: pytest.ini (ini)`.
+This involves one final change:
+1.  Modify the `run` method in `improver/integration.py`. The syntax check must be updated to only parse files with a `.py` extension. Files without a `.py` extension should be skipped by the syntax check.
