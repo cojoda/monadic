@@ -6,7 +6,8 @@ import sys
 import threading
 import shutil
 import re
-from typing import List, Set, Optional
+import tempfile
+from typing import List, Set, Optional, Tuple, Dict, Any
 
 # Try importing SafeIO robustly (absolute then relative import) so the orchestrator
 # works both when run as a package and when run from repo root during development.
@@ -51,24 +52,15 @@ class Improver:
         files.sort()
         return files
 
-    async def _run_pytest(self, goal: str) -> None:
-        """Run pytest in a background thread and print results. Failures do not raise here.
-
-        The routine prefers running pytest via `python -m pytest` using the current
-        interpreter. If that fails, it will try importing pytest and invoking
-        pytest.main. All blocking operations run in a thread via asyncio.to_thread.
-        """
-        print("\n[Improver] Running pytest (background)...")
-
-        def _run_subprocess_pytest():
+    async def _invoke_pytest_in_dir(self, cwd: str) -> Tuple[int, str, str]:
+        """Invoke pytest in `cwd` and return (rc, stdout, stderr)."""
+        def _run_subprocess_pytest(cwd_inner: str):
             try:
-                # Run pytest from the project's root directory if available on SafeIO.
-                cwd = getattr(self.safe_io, 'root_dir', os.path.abspath('.'))
                 completed = subprocess.run(
                     [sys.executable, '-m', 'pytest', '-q'],
                     capture_output=True,
                     text=True,
-                    cwd=cwd,
+                    cwd=cwd_inner,
                 )
                 stdout = completed.stdout or ""
                 stderr = completed.stderr or ""
@@ -77,189 +69,72 @@ class Improver:
             except Exception as e:
                 return 2, "", f"Subprocess invocation failed: {e}"
 
-        def _run_import_pytest():
+        # Prefer subprocess approach; run in thread
+        return await asyncio.to_thread(_run_subprocess_pytest, cwd)
+
+    # Small helpers to extract information from pytest output
+    @staticmethod
+    def _extract_failing_test_nodeid(output: str) -> Optional[str]:
+        # Look for file::test patterns
+        m = re.search(r'([\w\./\\\-]+\.py::[^\s:,]+)', output)
+        if m:
+            return m.group(1)
+        # Try summary form 'FAILED path/to/test_file.py::test_func - ...'
+        m2 = re.search(r'FAILED\s+([^\s:]+\.py::[^\s\n]+)', output)
+        if m2:
+            return m2.group(1)
+        return None
+
+    @staticmethod
+    def _extract_application_file_from_traceback(output: str, prefer_not_test: bool = True) -> Optional[str]:
+        # Scan traceback 'File "..."' entries and pick a candidate
+        candidates = []
+        for m in re.finditer(r'File "([^"]+\.py)", line \d+, in', output):
+            candidates.append(m.group(1))
+        if not candidates:
+            return None
+        # Prefer non-test files from the deepest frames
+        for p in reversed(candidates):
             try:
-                cwd = getattr(self.safe_io, 'root_dir', os.path.abspath('.'))
-                orig_cwd = os.getcwd()
-                try:
-                    os.chdir(cwd)
-                    import pytest
-                    # Running pytest.main is blocking; run inside thread.
-                    rc = pytest.main(['-q'])
-                    return rc, f'pytest.main() returned exit code {rc}', ''
-                finally:
-                    os.chdir(orig_cwd)
-            except Exception as e:
-                return 2, "", f"Import/invoke pytest failed: {e}"
-
-        try:
-            # Prefer subprocess approach; run it in a thread.
-            rc, stdout, stderr = await asyncio.to_thread(_run_subprocess_pytest)
-
-            # If subprocess failed to start pytest (rc != 0 and little output), try import fallback
-            if rc != 0 and (not stdout) and (stderr and 'No module named' in stderr or not shutil.which('pytest')):
-                rc2, out2, err2 = await asyncio.to_thread(_run_import_pytest)
-                if out2 or err2:
-                    stdout = stdout + out2
-                    stderr = stderr + err2
-                rc = rc2
-
-            print("\n[pytest stdout]\n" + (stdout or "<no stdout>"))
-            if stderr:
-                print("\n[pytest stderr]\n" + stderr)
-            print(f"[Improver] pytest finished with exit code: {rc}\n")
-        except Exception as e:
-            print(f"[Improver] Failed to run pytest: {e}")
-            rc = 2
-            stdout = ''
-            stderr = str(e)
-
-        # Update failure log: if tests succeeded, clear recorded failures for this goal
-        try:
-            if rc == 0:
-                try:
-                    fails = get_failures_for_goal(goal)
-                    if fails:
-                        for tp in list(fails.keys()):
-                            try:
-                                clear_failure_for_test(goal, tp)
-                                print(f"[Improver] Tests passed: cleared failure log for goal: {goal}, test: {tp}")
-                            except Exception:
-                                pass
+                if not os.path.exists(p):
+                    rel = os.path.join(os.getcwd(), p)
+                    if os.path.exists(rel):
+                        p = rel
                     else:
-                        # No per-test entries; clear whole goal as fallback
-                        clear_goal(goal)
-                        print(f"[Improver] Tests passed: cleared failure log for goal: {goal}")
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # If tests failed, attempt to analyze the failure using the TestFailureAnalysisTask
-        if rc != 0:
+                        continue
+                bn = os.path.basename(p)
+                if prefer_not_test and bn.startswith('test_'):
+                    continue
+                # exclude obvious system/venv paths heuristically
+                low = p.lower()
+                if any(x in low for x in ('site-packages', 'dist-packages', os.sep + 'lib' + os.sep + 'python', '/usr/lib')):
+                    continue
+                return os.path.normpath(p)
+            except Exception:
+                continue
+        # fallback to last existing candidate
+        for p in reversed(candidates):
             try:
-                pytest_output = (stdout or '') + "\n" + (stderr or '')
+                if os.path.exists(p):
+                    return os.path.normpath(p)
+                rel = os.path.join(os.getcwd(), p)
+                if os.path.exists(rel):
+                    return os.path.normpath(rel)
+            except Exception:
+                continue
+        return None
 
-                # Try to extract a failing test file path from pytest output
-                def _extract_failing_test_path(output: str) -> Optional[str]:
-                    # Look for patterns like 'path/to/file.py:123' which pytest often emits
-                    m = re.search(r'(?m)([\w\./\\\-]+\.py):\d+', output)
-                    if m:
-                        candidate = m.group(1)
-                        if os.path.exists(candidate):
-                            return candidate
-                        rel = os.path.join(os.getcwd(), candidate)
-                        if os.path.exists(rel):
-                            return rel
-                    # Look for 'FAILED some/path/to/test_file.py::test_name' style
-                    m2 = re.search(r'(?m)^(FAILED|ERROR)\s+([^\s:]+\.py)', output)
-                    if m2:
-                        candidate = m2.group(2)
-                        if os.path.exists(candidate):
-                            return candidate
-                    # Match traceback lines like '  File "/path/to/file.py", line 12, in test_foo'
-                    m3 = re.search(r'File "([^"]+\.py)", line \d+, in', output)
-                    if m3:
-                        candidate = m3.group(1)
-                        if os.path.exists(candidate):
-                            return candidate
-                    # Fallback: pick a test_*.py file in repo if present
-                    for root, _, files in os.walk('.'):
-                        for f in files:
-                            if f.startswith('test_') and f.endswith('.py'):
-                                return os.path.join(root, f)
-                    return None
-
-                test_path = _extract_failing_test_path(pytest_output)
-
-                # Record failure in the log if we can identify a test path
-                try:
-                    if test_path:
-                        try:
-                            new_count = increment_failure(goal, test_path)
-                            print(f"[Improver] Recorded failure for goal='{goal}', test='{test_path}'. Consecutive failures: {new_count}")
-                            if new_count >= 2:
-                                print("\n[Improver] WARNING: This test has failed on at least two consecutive improvement attempts for the same goal.")
-                                print("Please ask a human developer to review the failing test and the suggested changes to avoid a deadlock in the improvement loop.\n")
-                        except Exception:
-                            pass
-                    else:
-                        print("[Improver] Could not determine failing test file from pytest output; not recording to failure log.")
-                except Exception:
-                    pass
-
-                test_source = None
-                if test_path:
-                    # Try safe_io.read first, fall back to direct open
-                    try:
-                        try:
-                            test_source = self.safe_io.read(test_path)
-                        except Exception:
-                            with open(test_path, 'r', encoding='utf-8') as _f:
-                                test_source = _f.read()
-                    except Exception:
-                        test_source = None
-
-                # Dynamically import TestFailureAnalysisTask here to avoid import-time issues
-                try:
-                    from .testing import TestFailureAnalysisTask
-                except Exception as e:
-                    TestFailureAnalysisTask = None
-                    import_error = e
-                else:
-                    import_error = None
-
-                if TestFailureAnalysisTask is None:
-                    print(f"[Improver] TestFailureAnalysisTask unavailable; skipping analysis.{' Import error: ' + str(import_error) if import_error else ''}")
-                else:
-                    analysis_task = TestFailureAnalysisTask(goal="Analyze pytest failure and determine cause")
-                    analysis_result = None
-                    try:
-                        analysis_result = await analysis_task.execute(
-                            pytest_output=pytest_output,
-                            test_file_path=test_path,
-                            test_source=test_source
-                        )
-                    except TypeError:
-                        # Try positional fallback
-                        try:
-                            analysis_result = await analysis_task.execute(pytest_output, test_path, test_source)
-                        except Exception:
-                            analysis_result = None
-
-                    if analysis_result is None:
-                        print("[TestAnalysis] LLM returned no structured analysis.")
-                    else:
-                        try:
-                            # Accept Pydantic model instance or dict-like parsed structure
-                            if hasattr(analysis_result, 'dict'):
-                                data = analysis_result.dict()
-                            elif isinstance(analysis_result, dict):
-                                data = analysis_result
-                            else:
-                                data = {
-                                    'verdict': getattr(analysis_result, 'verdict', None),
-                                    'confidence': getattr(analysis_result, 'confidence', None),
-                                    'explanation': getattr(analysis_result, 'explanation', None),
-                                    'suggested_fix': getattr(analysis_result, 'suggested_fix', None),
-                                }
-
-                            verdict = data.get('verdict')
-                            confidence = data.get('confidence')
-                            explanation = data.get('explanation')
-                            suggested_fix = data.get('suggested_fix')
-
-                            print("\n[Improver] Test Failure Analysis Result:")
-                            print(f"Verdict: {verdict or '<unknown>'} (confidence: {confidence or 'unknown'})")
-                            if explanation:
-                                print(f"Explanation: {explanation}")
-                            if suggested_fix:
-                                print(f"Suggested fix: {suggested_fix}")
-                        except Exception:
-                            print("[TestAnalysis] Received analysis but failed to read fields.")
-
-            except Exception as e:
-                print(f"[Improver] Failed to perform test failure analysis: {e}")
+    @staticmethod
+    def _extract_error_summary(output: str) -> str:
+        # Find 'E   ' lines
+        for ln in output.splitlines():
+            if ln.strip().startswith('E'):
+                return ln.strip()
+        # fallback to last non-empty line
+        for ln in reversed(output.splitlines()):
+            if ln.strip():
+                return ln.strip()
+        return ''
 
     async def run(self, goal, num_branches=3, iterations_per_branch=3):
         print(f"\nStarting workspace-aware improvement with goal: {goal}")
@@ -268,7 +143,6 @@ class Improver:
             if should_halt_for_goal(goal, threshold=2):
                 print("\n[Improver] Aborting improvement: one or more tests associated with this goal have failed on the previous two consecutive improvement attempts.")
                 print("Please ask a human developer to inspect the failing test(s) and the recent changes before attempting further automated improvements.")
-                # Optionally, show which tests are failing
                 try:
                     fails = get_failures_for_goal(goal)
                     if fails:
@@ -279,7 +153,6 @@ class Improver:
                     pass
                 return
         except Exception:
-            # On any error reading the failure log, continue normally to avoid blocking improvements
             pass
 
         file_tree = self._scan_project_files()
@@ -290,45 +163,37 @@ class Improver:
         # Use PlanningAndScaffoldingTask to produce the scaffolding plan
         planning_task = PlanningAndScaffoldingTask(goal)
 
-        # Validation and self-correction loop: generate plan and ensure existing_files_to_edit exist
-        max_retries = 2  # allowed correction attempts
+        # Validation and self-correction loop
+        max_retries = 2
         attempt = 0
         error_context: Optional[str] = None
         plan: Optional[ScaffoldingPlan] = None
 
         def _path_variants(p: str) -> Set[str]:
-            # Create plausible variants of a path to check for existence
             variants = set()
             variants.add(p)
             variants.add(os.path.normpath(p))
             if p.startswith('./'):
-                variants.add(p[2:])
-                variants.add(os.path.normpath(p[2:]))
+                variants.add(p[2:]); variants.add(os.path.normpath(p[2:]))
             else:
-                variants.add('./' + p)
-                variants.add(os.path.normpath('./' + p))
-            # also try stripped leading slashes
+                variants.add('./' + p); variants.add(os.path.normpath('./' + p))
             variants.add(p.lstrip('./'))
             variants.add(os.path.normpath(p.lstrip('./')))
             return variants
 
         while True:
-            # Try to pass error_context, but remain defensive if execute doesn't accept it
             try:
                 plan = await planning_task.execute(file_tree=file_tree, error_context=error_context)
             except TypeError:
-                # Fallback for LLMTask implementations that don't forward kwargs
                 plan = await planning_task.execute(file_tree=file_tree)
 
             if not plan:
                 print("PlanningAndScaffoldingTask returned no plan.")
                 return
 
-            # Log reasoning for visibility
             if getattr(plan, 'reasoning', None):
                 print(f"\nLLM Reasoning from scaffolding plan:\n{plan.reasoning}\n")
 
-            # Validate that files listed as existing actually exist (try normalized variants)
             missing = []
             for f in plan.existing_files_to_edit:
                 found = False
@@ -340,9 +205,8 @@ class Improver:
                     missing.append(f)
 
             if not missing:
-                break  # plan is valid
+                break
 
-            # Build error message and retry
             missing_list = "\n".join(missing)
             error_message = (
                 "The previous scaffolding plan references the following files that were not found in the repository:\n"
@@ -361,7 +225,6 @@ class Improver:
 
             print("Re-running PlanningAndScaffoldingTask to correct plan based on error context...")
             error_context = error_message
-            # loop will re-run planning with error_context
 
         # Create new files with empty content
         for new_file in plan.new_files_to_create:
@@ -375,13 +238,10 @@ class Improver:
                 print(f"Error while creating new file {new_file}: {e}")
                 return
 
-        # Combine existing_files_to_edit and new_files_to_create for full context
         combined_files = set(plan.existing_files_to_edit) | set(plan.new_files_to_create)
-
-        # Filter out protected files for editing
         filtered_files = [f for f in combined_files if f not in self._protected_files]
 
-        # Expand context by including local dependencies
+        # Expand context
         expanded_context: Set[str] = set(filtered_files)
         for file_path in filtered_files:
             try:
@@ -410,18 +270,191 @@ class Improver:
             return
 
         try:
-            # Only read original content from existing files to edit, excluding protected
             original_files = [fp for fp in plan.existing_files_to_edit if fp not in self._protected_files]
             original = {fp: self.safe_io.read(fp) for fp in original_files}
         except Exception as e:
             print(f"Failed to read original files before applying changes: {e}")
             return
 
-        # Check if any changes exist
         if not any(original.get(e.file_path) != e.code for e in integration.edits if e.file_path not in self._protected_files):
             print("\nResult: No changes detected after integration.")
             return
 
+        # Run tests in a sandbox with proposed edits applied before touching the repo
+        try:
+            with tempfile.TemporaryDirectory(prefix='improver-test-') as td:
+                repo_root = os.path.abspath('.')
+                # Copy project into tempdir (best-effort), skipping dot dirs and protected files
+                for root, dirs, files in os.walk('.'):  # top-down
+                    rel_root = os.path.relpath(root, '.')
+                    if rel_root == '.':
+                        rel_root = ''
+                    # Skip hidden directories
+                    skip_dir = False
+                    for part in rel_root.split(os.sep):
+                        if part.startswith('.'):
+                            skip_dir = True
+                            break
+                    if skip_dir:
+                        continue
+                    dest_root = os.path.join(td, rel_root)
+                    os.makedirs(dest_root, exist_ok=True)
+                    for f in files:
+                        if f.startswith('.'):
+                            continue
+                        src_fp = os.path.join(root, f)
+                        norm_src = os.path.normpath(src_fp)
+                        # Skip protected files
+                        if norm_src in self._protected_files or f in self._protected_files:
+                            continue
+                        try:
+                            shutil.copy2(src_fp, os.path.join(dest_root, f))
+                        except Exception:
+                            continue
+
+                # Apply integrated edits into tempdir
+                for edit in integration.edits:
+                    if edit.file_path in self._protected_files:
+                        continue
+                    dest_fp = os.path.join(td, edit.file_path)
+                    ddir = os.path.dirname(dest_fp)
+                    if ddir:
+                        os.makedirs(ddir, exist_ok=True)
+                    try:
+                        with open(dest_fp, 'w', encoding='utf-8') as f:
+                            f.write(edit.code)
+                    except Exception:
+                        # best-effort; continue
+                        pass
+
+                # Run pytest in the tempdir
+                rc_td, out_td, err_td = await self._invoke_pytest_in_dir(td)
+                pytest_output = (out_td or '') + '\n' + (err_td or '')
+
+                if rc_td == 0:
+                    print("Proposed changes passed tests in a sandbox. Proceeding to apply to repository.")
+                else:
+                    print("Proposed changes caused test failures in sandboxed run. Analyzing failures before applying to repo...")
+
+                    test_nodeid = self._extract_failing_test_nodeid(pytest_output)
+                    app_file = self._extract_application_file_from_traceback(pytest_output)
+                    last_err = self._extract_error_summary(pytest_output)
+
+                    # Attempt structured analysis with TestFailureAnalysisTask
+                    try:
+                        from .testing import TestFailureAnalysisTask
+                    except Exception:
+                        TestFailureAnalysisTask = None
+
+                    analysis_result = None
+                    if TestFailureAnalysisTask is not None:
+                        test_source = None
+                        possible_test_file = None
+                        if test_nodeid:
+                            possible_test_file = test_nodeid.split('::')[0]
+                        if possible_test_file:
+                            try:
+                                test_source = self.safe_io.read(possible_test_file)
+                            except Exception:
+                                try:
+                                    with open(possible_test_file, 'r', encoding='utf-8') as f:
+                                        test_source = f.read()
+                                except Exception:
+                                    test_source = None
+                        analysis_task = TestFailureAnalysisTask(goal="Analyze pytest failure and determine cause")
+                        try:
+                            analysis_result = await analysis_task.execute(pytest_output=pytest_output, test_file_path=possible_test_file, test_source=test_source)
+                        except TypeError:
+                            try:
+                                analysis_result = await analysis_task.execute(pytest_output, possible_test_file, test_source)
+                            except Exception:
+                                analysis_result = None
+
+                    verdict = None
+                    try:
+                        if analysis_result is None:
+                            print("No automated test-failure analysis available; proceeding to apply changes (best-effort).")
+                        else:
+                            if hasattr(analysis_result, 'dict'):
+                                a = analysis_result.dict()
+                            elif isinstance(analysis_result, dict):
+                                a = analysis_result
+                            else:
+                                a = {
+                                    'verdict': getattr(analysis_result, 'verdict', None),
+                                    'confidence': getattr(analysis_result, 'confidence', None),
+                                    'explanation': getattr(analysis_result, 'explanation', None),
+                                    'suggested_fix': getattr(analysis_result, 'suggested_fix', None),
+                                }
+                            verdict = (a.get('verdict') or '').lower()
+                            print(f"Test failure analysis verdict: {verdict}")
+                    except Exception:
+                        verdict = None
+
+                    if verdict == 'application_code_bug':
+                        # Compose suggested goal message using repo-relative paths when possible
+                        def _make_display_path(path: Optional[str]) -> str:
+                            if not path:
+                                return '<unknown>'
+                            try:
+                                norm = os.path.normpath(path)
+                                if norm.startswith(os.path.normpath(td) + os.sep):
+                                    rel = os.path.relpath(norm, start=td)
+                                    return rel
+                                rel = os.path.relpath(norm, start=os.path.abspath('.'))
+                                return rel
+                            except Exception:
+                                return path
+
+                        app_file_display = _make_display_path(app_file) if app_file else '<application file unknown>'
+
+                        test_display = test_nodeid or '<unknown test>'
+                        try:
+                            if isinstance(test_display, str) and td and os.path.normpath(td) in os.path.normpath(test_display):
+                                if '::' in test_display:
+                                    fp, _, rest = test_display.partition('::')
+                                    mapped = _make_display_path(fp)
+                                    test_display = f"{mapped}::{rest}"
+                                else:
+                                    test_display = _make_display_path(test_display)
+                        except Exception:
+                            pass
+
+                        # Shorten/clean error message
+                        err_display = last_err or ''
+                        if err_display and len(err_display) > 300:
+                            err_display = err_display[:297] + '...'
+
+                        suggested_goal = f"Fix the bug in `{app_file_display}` that causes the test `{test_display}` to fail."
+                        if err_display:
+                            suggested_goal += f" Error observed: {err_display}"
+
+                        # Record this failure in the persistent failure log against the goal and specific test (best-effort)
+                        try:
+                            test_log_key = test_nodeid or (app_file or '<unknown>')
+                        except Exception:
+                            test_log_key = test_nodeid or app_file or '<unknown>'
+                        try:
+                            cnt = increment_failure(goal, test_log_key)
+                            print(f"[Improver] Recorded automated suggested-goal failure for goal='{goal}', test='{test_log_key}'. New consecutive failure count: {cnt}")
+                        except Exception:
+                            pass
+
+                        # Print the clear, prefixed message and suggested goal and do not apply edits
+                        print("\n[Improver] IMPORTANT: Automated test failure analysis indicates an application code bug related to the proposed edits.")
+                        print("[Improver] The proposed changes will NOT be applied to your repository.")
+                        print("[Improver] Suggested new goal for the developer (use this as the next improvement objective):")
+                        print('\n' + suggested_goal + '\n')
+
+                        # Gracefully exit the improvement run without applying changes
+                        return
+                    else:
+                        print("Analysis did not conclude 'application_code_bug'; proceeding to apply edits to repo.")
+
+        except Exception as e:
+            print(f"Warning: Failed to run sandboxed pytest analysis: {e}. Proceeding to apply edits to repository.")
+
+        # Apply edits to the real repository
         print("\nApplying integrated changes...")
         try:
             for edit in integration.edits:
@@ -432,9 +465,13 @@ class Improver:
         except PermissionError as e:
             print(f"Failed to write changes: {e}")
             return
+        except Exception as e:
+            print(f"Unexpected error while writing changes: {e}")
+            return
+
         print(f"--- Finished multi-file improvement for files: {sorted(filtered_files)} ---")
 
-        # After applying changes, run pytest in background. Do not let failures block the application.
+        # Schedule pytest in background to observe results; failures should not block
         try:
             loop = None
             try:
@@ -443,16 +480,14 @@ class Improver:
                 loop = None
 
             if loop and loop.is_running():
-                # Schedule the coroutine on the current loop
                 try:
-                    asyncio.create_task(self._run_pytest(goal))
+                    asyncio.create_task(self._invoke_pytest_in_dir(getattr(self.safe_io, 'root_dir', os.path.abspath('.'))))
                 except Exception as e:
                     print(f"Warning: Failed to schedule pytest as an asyncio task: {e}")
-                    # Fallback: run the coroutine in a background thread with its own loop
-                    threading.Thread(target=lambda: asyncio.run(self._run_pytest(goal)), daemon=True).start()
+                    threading.Thread(target=lambda: asyncio.run(self._invoke_pytest_in_dir(getattr(self.safe_io, 'root_dir', os.path.abspath('.')))), daemon=True).start()
             else:
-                # No running event loop; launch pytest in a background thread running its own event loop
-                print("No running event loop; launching pytest in a background thread.")
-                threading.Thread(target=lambda: asyncio.run(self._run_pytest(goal)), daemon=True).start()
+                threading.Thread(target=lambda: asyncio.run(self._invoke_pytest_in_dir(getattr(self.safe_io, 'root_dir', os.path.abspath('.')))), daemon=True).start()
         except Exception as e:
             print(f"Warning: Failed to schedule pytest run: {e}")
+
+        return
