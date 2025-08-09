@@ -1,6 +1,5 @@
-# improver/models.py
-from typing import List
-from pydantic import BaseModel, validator
+from typing import List, Optional
+from pydantic import BaseModel, validator, Field
 
 class FileEdit(BaseModel):
     file_path: str
@@ -18,3 +17,14 @@ class PlanAndCode(BaseModel):
 
 class FileSelectionResponse(BaseModel):
     selected_files: List[str]
+
+class ScaffoldingPlan(BaseModel):
+    # Use a mutable-default-safe field for steps
+    steps: List[str] = Field(default_factory=list)
+
+class WorkflowContext(BaseModel):
+    # Centralized state for the workflow
+    goal: str
+    file_tree: List[str]
+    # Initialize with an empty scaffolding plan by default to represent an empty scaffold
+    scaffolding_plan: Optional[ScaffoldingPlan] = Field(default_factory=lambda: ScaffoldingPlan())
