@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Type
+from typing import List, Dict, Any, Type, Optional
 from pydantic import BaseModel
 
 from llm_provider import get_structured_completion
@@ -17,7 +17,7 @@ class LLMTask(ABC):
     def response_model(self) -> Type[BaseModel]: ...
 
     @abstractmethod
-    def construct_prompt(self, **kwargs: Any) -> List[Dict[str, str]]: ...
+    def construct_prompt(self, error_context: Optional[str] = None, **kwargs: Any) -> List[Dict[str, str]]: ...
 
     async def execute(self, **kwargs: Any) -> Any:
         return (await get_structured_completion(self.construct_prompt(**kwargs), self.response_model) or {}).get('parsed_content')

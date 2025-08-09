@@ -1,6 +1,6 @@
 # improver/integration.py
 import ast
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from .core import LLMTask
 from .models import PlanAndCode, FileEdit
@@ -16,22 +16,43 @@ class IntegratorTask(LLMTask):
     )
     response_model = PlanAndCode
 
-    def construct_prompt(self, proposals: List[Dict]) -> List[Dict[str, str]]:
+    def construct_prompt(self, proposals: List[Dict], error_context: Optional[str] = None) -> List[Dict[str, str]]:
+        """Construct the prompt for the integration task.
+
+        Args:
+            proposals: List of proposals, each containing an 'id', 'plan', and 'edits'.
+            error_context: Optional string describing errors from a previous attempt. If provided,
+                           it should guide the LLM to fix the noted issues in the next integration.
+        """
         lines = [f'**Original Goal:** {self.goal}\n---']
         for p in proposals:
             lines.extend(["---",
-                          f"\n**Branch ID: {p['id']}**",
+                          f"\n**Branch ID: {p['id'] }**",
                           f"**Reasoning:**\n{p['plan']}",
-                          "\n**Code Edits:**"])
-            # The 'edits' here are FileEdit objects
+                          "\n**Code Edits:"])
+            # The 'edits' here are FileEdit objects or dicts with file_path/code.
             for edit in p['edits']:
-                lines.extend([f"\nFile: `{edit.file_path}`", '```python', edit.code, '```'])
+                if isinstance(edit, dict):
+                    file_path = edit.get('file_path')
+                    code = edit.get('code', '')
+                else:
+                    file_path = getattr(edit, 'file_path', None)
+                    code = getattr(edit, 'code', '')
+                lines.extend([f"\nFile: `{file_path}`", '```python', code, '```'])
+        if error_context:
+            lines.extend([
+                "",
+                "**Error Context / Previous Attempt Issues:**",
+                error_context,
+                "",
+                "Please fix the syntax error in the next integration attempt."
+            ])
         return [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": "\n".join(lines)}]
 
 class IntegrationRunner:
     def __init__(self, goal: str, safe_io: SafeIO):
         self.goal = goal
-        self.safe_io = safe_io # Note: This parameter is unused.
+        self.safe_io = safe_io  # Note: This parameter is unused.
         self.integrator_task = IntegratorTask(goal)
 
     async def run(self, proposals: List[Dict]) -> Any:
@@ -43,33 +64,70 @@ class IntegrationRunner:
             return PlanAndCode(reasoning=proposals[0]['plan'], edits=proposals[0]['edits'])
 
         print("Multiple successful branches, integrating...")
-        integration = await self.integrator_task.execute(proposals=proposals)
-        if not isinstance(integration, PlanAndCode):
-            print("Integrator LLM failed. Aborting.")
-            return None
 
-        # Validate only Python files (.py). Skip syntax checking for non-.py files.
-        for e in integration.edits:
-            # Support both attribute-style FileEdit objects and dict-like edits
-            file_path = getattr(e, 'file_path', None)
-            if file_path is None and isinstance(e, dict):
-                file_path = e.get('file_path')
-            code = getattr(e, 'code', None)
-            if code is None and isinstance(e, dict):
-                code = e.get('code', '')
+        max_retries = 2
+        error_context: Optional[str] = None
 
-            # Only attempt to parse files that have a string file_path ending with .py
-            if not (isinstance(file_path, str) and file_path.lower().endswith('.py')):
-                # Skip syntax check for non-python files or edits without a valid file path
-                continue
+        for attempt in range(max_retries + 1):
+            if attempt == 0:
+                print("Integrator attempt 1 with no prior error context.")
+            else:
+                print(f"Integrator attempt {attempt + 1} with error_context provided.")
 
-            err = self._try_parse_code(file_path, code)
-            if err:
-                print(f"Integrated code SyntaxError detected in {file_path or '<unknown>'}: {err}")
-                return None
+            integration = await self.integrator_task.execute(proposals=proposals, error_context=error_context)
+            if not isinstance(integration, PlanAndCode):
+                print("Integrator LLM failed. Aborting." if attempt == max_retries else "Integrator LLM failed. Will retry with error context if available.")
+                if attempt < max_retries:
+                    continue
+                else:
+                    return None
 
-        print(f"\nIntegration reasoning:\n{integration.reasoning}")
-        return integration
+            # Validate only Python files (.py). Skip syntax checking for non-.py files.
+            syntax_error_found = False
+            detected_err: Optional[SyntaxError] = None
+            detected_file: Optional[str] = None
+            for e in integration.edits:
+                # Support both attribute-style FileEdit objects and dict-like edits
+                file_path = getattr(e, 'file_path', None)
+                if isinstance(e, dict):
+                    file_path = e.get('file_path', file_path)
+                code = getattr(e, 'code', None)
+                if isinstance(e, dict):
+                    code = e.get('code', code)
+
+                # Only attempt to parse files that have a string file_path ending with .py
+                if not (isinstance(file_path, str) and file_path.lower().endswith('.py')):
+                    continue
+
+                err = self._try_parse_code(file_path, code)
+                if err:
+                    syntax_error_found = True
+                    detected_err = err
+                    detected_file = file_path
+                    break
+
+            if syntax_error_found and detected_err is not None:
+                # Build error context from the SyntaxError
+                err = detected_err
+                err_desc = getattr(err, 'msg', str(err))
+                lineno = getattr(err, 'lineno', None)
+                if lineno is not None:
+                    err_desc = f"{err_desc} (line {lineno})"
+                error_context = f"SyntaxError in {detected_file}: {err_desc}"
+                print(f"Integrated code SyntaxError detected in {detected_file}: {err_desc}")
+                if attempt < max_retries:
+                    # Retry with updated error_context
+                    continue
+                else:
+                    print("Maximum retries reached. Aborting.")
+                    return None
+
+            # No syntax errors detected; integration successful
+            print(f"\nIntegration reasoning:\n{integration.reasoning}")
+            return integration
+
+        # If somehow the loop exits without returning, abort safely
+        return None
 
     @staticmethod
     def _try_parse_code(file_path: Any, code: Any):
