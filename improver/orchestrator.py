@@ -272,7 +272,23 @@ class Improver:
 
         runners = [BranchRunner(goal, self.safe_io, list(self._protected_files), i+1, iterations=iterations_per_branch).run(expanded_context_sorted) for i in range(num_branches)]
         results = await asyncio.gather(*runners)
-        proposals = [dict(id=i+1, plan=r.reasoning, edits=r.edits) for i, r in enumerate(results) if r]
+        # Store branch-level proposals in context for downstream use
+        branch_proposals = []
+        proposals = []
+        for i, r in enumerate(results):
+            if r:
+                proposals.append(dict(id=i+1, plan=r.reasoning, edits=r.edits))
+                branch_proposals.append({
+                    "id": i+1,
+                    "reasoning": r.reasoning,
+                    "edits": [{"file_path": e.file_path, "code": e.code} for e in r.edits]
+                })
+        # Persist branch proposals into the workflow context
+        try:
+            context.branch_proposals = branch_proposals
+        except Exception:
+            pass
+
         if not proposals:
             print("\nResult: No successful proposals.")
             return
@@ -469,8 +485,8 @@ class Improver:
             print(f"Warning: Failed to schedule pytest run: {e}")
 
         return
-    
-    
+
+
     async def _start_high_priority_fix_loop(self, original_goal: str, test_log_key: str, test_nodeid: Optional[str], app_file: Optional[str], possible_test_file: Optional[str], test_source: Optional[str], extra_context_text: str) -> bool:
         """(Description unchanged; omitted for brevity in this patch)"""
         pass

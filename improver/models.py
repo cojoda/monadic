@@ -1,4 +1,4 @@
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from pydantic import BaseModel, validator, Field
 
 class FileEdit(BaseModel):
@@ -19,7 +19,6 @@ class FileSelectionResponse(BaseModel):
     selected_files: List[str]
 
 class ScaffoldingPlan(BaseModel):
-    # Use a mutable-default-safe field for steps
     steps: List[str] = Field(default_factory=list)
 
 class WorkflowContext(BaseModel):
@@ -28,3 +27,5 @@ class WorkflowContext(BaseModel):
     file_tree: List[str]
     # Relax the type to allow storing arbitrary planning results (PlanningScaffoldingPlan, etc.)
     scaffolding_plan: Optional[Any] = None
+    # New field: store per-branch proposals/results as a list of dictionaries
+    branch_proposals: List[Dict[str, Any]] = Field(default_factory=list)
