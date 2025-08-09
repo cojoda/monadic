@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Any
 from pydantic import BaseModel, validator, Field
 
 class FileEdit(BaseModel):
@@ -26,5 +26,5 @@ class WorkflowContext(BaseModel):
     # Centralized state for the workflow
     goal: str
     file_tree: List[str]
-    # Initialize with an empty scaffolding plan by default to represent an empty scaffold
-    scaffolding_plan: Optional[ScaffoldingPlan] = Field(default_factory=lambda: ScaffoldingPlan())
+    # Relax the type to allow storing arbitrary planning results (PlanningScaffoldingPlan, etc.)
+    scaffolding_plan: Optional[Any] = None
