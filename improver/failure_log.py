@@ -5,6 +5,8 @@ from typing import Dict, Optional
 
 # Path to JSON file storing failure counts. Keep at repo root.
 LOG_PATH = os.environ.get('IMPROVER_TEST_FAILURE_LOG', 'test_failure_log.json')
+# Path to quarantine list for tests that failed repeatedly
+QUARANTINE_PATH = os.environ.get('IMPROVER_QUARANTINE_PATH', 'quarantined_tests.json')
 
 _DEFAULT_STRUCTURE = {"goals": {}}
 
@@ -60,11 +62,6 @@ def _write_log(data: Dict) -> None:
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
             f.flush()
-            try:
-                os.fsync(f.fileno())
-            except Exception:
-                # ignore fsync failures on some platforms
-                pass
         # atomic replace where available
         try:
             os.replace(tmp, LOG_PATH)
@@ -160,3 +157,48 @@ def clear_goal(goal: str) -> None:
 def get_all() -> Dict:
     """Return the entire log structure (best-effort)."""
     return _read_log()
+
+
+# Quarantine helpers (new)
+
+def _read_quarantine() -> list:
+    if not os.path.exists(QUARANTINE_PATH):
+        return []
+    try:
+        with open(QUARANTINE_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict) and isinstance(data.get('quarantined', []), list):
+                return data['quarantined']
+    except Exception:
+        pass
+    return []
+
+
+def _write_quarantine(lst: list) -> None:
+    try:
+        _ensure_parent_dir(QUARANTINE_PATH)
+        with open(QUARANTINE_PATH, 'w', encoding='utf-8') as f:
+            json.dump({"quarantined": lst}, f, indent=2)
+    except Exception:
+        pass
+
+
+def quarantine_test(test_path: str) -> None:
+    """Add a test_path to quarantine list and persist to disk."""
+    try:
+        lst = _read_quarantine()
+        if test_path not in lst:
+            lst.append(test_path)
+            _write_quarantine(lst)
+            print(f"[Improv] Quarantined test: {test_path}")
+    except Exception:
+        pass
+
+
+def is_quarantined(test_path: str) -> bool:
+    try:
+        return test_path in _read_quarantine()
+    except Exception:
+        return False
