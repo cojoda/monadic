@@ -13,7 +13,7 @@ client = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
 async def get_structured_completion(
     prompt_input: List[Dict[str, str]],
     schema: Type[BaseModel],
-    model: str = "gpt-5-mini"
+    model: str = "gpt-5-nano"
 ) -> Dict[str, Any]:
     """
     Calls the OpenAI Responses API with a Pydantic schema to get a structured completion.
@@ -24,6 +24,7 @@ async def get_structured_completion(
     try:
         response = await client.responses.parse(
             model=model,
+            instructions="## MANDATE ## THINK HARD",
             input=prompt_input,
             text_format=schema,
         )
