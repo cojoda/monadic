@@ -6,4 +6,4 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- In improver/models.py, create a new Pydantic model named WorkflowContext. It should have fields to hold the goal (str), file_tree (List[str]), and an empty scaffolding_plan (Optional[ScaffoldingPlan]). This will be the foundation for our centralized state.
+- In improver/orchestrator.py, modify the Improver.run method. It should now create an instance of WorkflowContext at the beginning of the run. Update the call to the PlanningAndScaffoldingTask to use the goal and file_tree from this new context object.
