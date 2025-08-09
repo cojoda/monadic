@@ -48,7 +48,7 @@ class Improver:
         files = [os.path.join(root if root != '.' else '', f)
                  for root, _, fnames in os.walk('.')
                  if not any(p.startswith('.') for p in os.path.relpath(root, '.').split(os.sep))
-                 for f in fnames if not f.startswith('.')]
+                 for f in fnames if not f.startswith('.')]    
         files.sort()
         return files
 
@@ -188,7 +188,13 @@ class Improver:
             except TypeError:
                 plan = await planning_task.execute(file_tree=context.file_tree)
 
-            if not plan:
+            if plan:
+                # Persist the scaffolding plan in the workflow context immediately for downstream use
+                try:
+                    context.scaffolding_plan = plan
+                except Exception:
+                    pass
+            else:
                 print("PlanningAndScaffoldingTask returned no plan.")
                 return
 
@@ -226,6 +232,12 @@ class Improver:
 
             print("Re-running PlanningAndScaffoldingTask to correct plan based on error context...")
             error_context = error_message
+
+        # Persist the scaffolding plan in the workflow context for downstream use (ensured already above, but kept for safety)
+        try:
+            context.scaffolding_plan = plan
+        except Exception:
+            pass
 
         # Create new files with empty content
         for new_file in plan.new_files_to_create:
@@ -403,7 +415,7 @@ class Improver:
                                     'verdict': getattr(analysis_result, 'verdict', None),
                                     'confidence': getattr(analysis_result, 'confidence', None),
                                     'explanation': getattr(analysis_result, 'explanation', None),
-                                    'suggested_fix': getattr(analysis_result, 'suggested_fix', None),
+                                    'sug gested_fix': getattr(analysis_result, 'suggested_fix', None),
                                 }
                             verdict = (a.get('verdict') or '').lower()
                             print(f"Test failure analysis verdict: {verdict}")
@@ -457,7 +469,6 @@ class Improver:
             print(f"Warning: Failed to schedule pytest run: {e}")
 
         return
-
     
     
     async def _start_high_priority_fix_loop(self, original_goal: str, test_log_key: str, test_nodeid: Optional[str], app_file: Optional[str], possible_test_file: Optional[str], test_source: Optional[str], extra_context_text: str) -> bool:
