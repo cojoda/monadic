@@ -6,4 +6,4 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- In improver/orchestrator.py, modify the Improver.run method. It should now create an instance of WorkflowContext at the beginning of the run. Update the call to the PlanningAndScaffoldingTask to use the goal and file_tree from this new context object.
+- In improver/orchestrator.py, after the PlanningAndScaffoldingTask completes, store the resulting ScaffoldingPlan in the scaffolding_plan field of the WorkflowContext object.
