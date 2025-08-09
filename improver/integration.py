@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from .core import LLMTask
 from .models import PlanAndCode, FileEdit
 from safe_io import SafeIO
+from .error_context import format_syntax_error_context
 
 class IntegratorTask(LLMTask):
     system_prompt = (
@@ -107,14 +108,9 @@ class IntegrationRunner:
                     break
 
             if syntax_error_found and detected_err is not None:
-                # Build error context from the SyntaxError
-                err = detected_err
-                err_desc = getattr(err, 'msg', str(err))
-                lineno = getattr(err, 'lineno', None)
-                if lineno is not None:
-                    err_desc = f"{err_desc} (line {lineno})"
-                error_context = f"SyntaxError in {detected_file}: {err_desc}"
-                print(f"Integrated code SyntaxError detected in {detected_file}: {err_desc}")
+                # Build error context from the SyntaxError using centralized formatter
+                error_context = format_syntax_error_context(detected_file, detected_err)
+                print(f"Integrated code SyntaxError detected in {detected_file}: {error_context}")
                 if attempt < max_retries:
                     # Retry with updated error_context
                     continue
