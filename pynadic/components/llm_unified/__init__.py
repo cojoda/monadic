@@ -4,8 +4,10 @@
 
 from .registry import Registry
 from .interface import predict
+from .unified_client import UnifiedClient
 
 __all__ = [
     "Registry",
     "predict",
+    "UnifiedClient",
 ]
