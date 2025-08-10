@@ -62,21 +62,22 @@ async def main():
     args = parser.parse_args()
 
     try:
-        # goals.md is always read from the agent's directory.
         active_goal = get_active_goal('goals.md')
     except (FileNotFoundError, ValueError) as e:
         print(f"Error: Could not load goal. {e}")
         return
 
-    # Instantiate core components with the project directory.
+    # Instantiate core components.
     safe_io = SafeIO(project_dir=args.project_dir)
-    improver = Improver(safe_io)
-
-    await improver.run(
-        goal=active_goal,
-        num_branches=args.branches,
-        iterations_per_branch=args.iterations
+    # Pass branch and iteration counts to the constructor.
+    improver = Improver(
+        safe_io,
+        default_num_branches=args.branches,
+        default_iterations_per_branch=args.iterations
     )
+
+    # The run method now only needs the goal.
+    await improver.run(goal=active_goal)
 
 if __name__ == "__main__":
     asyncio.run(main())
