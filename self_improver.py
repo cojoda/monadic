@@ -1,13 +1,11 @@
-# self_improver.py (Corrected)
+# self_improver.py
 import argparse
 import asyncio
-
-# The import now correctly points to the library, not an application script.
-from improver import Improver 
+from improver import Improver
 from safe_io import SafeIO
 
 def get_active_goal(goals_file: str) -> str:
-    '''Parses goals.md to get the first short-term goal, including multi-line descriptions.'''
+    '''Parses goals.md to get the first short-term goal.'''
     with open(goals_file, 'r') as f:
         lines = f.readlines()
 
@@ -17,43 +15,37 @@ def get_active_goal(goals_file: str) -> str:
 
     for line in lines:
         stripped_line = line.strip()
-
         if stripped_line.lower() == "## short term":
             in_short_term_section = True
             continue
-
         if in_short_term_section:
-            # Check for the start of the first bullet point
             if stripped_line.startswith('- ') and not is_collecting_goal:
                 is_collecting_goal = True
-                goal_lines.append(stripped_line[2:]) # Add the first line without the bullet
+                goal_lines.append(stripped_line[2:])
                 continue
-
             if is_collecting_goal:
-                # If we encounter a new bullet or a new section, we're done with the first goal.
                 if stripped_line.startswith('- ') or stripped_line.startswith('##'):
                     break
-                
-                # If it's just an empty line, preserve it as a paragraph break.
                 if not stripped_line:
-                    goal_lines.append("") # Keep blank lines for formatting
+                    goal_lines.append("")
                 else:
-                    # Otherwise, it's a continuation of the current goal
                     goal_lines.append(stripped_line)
-    
-    if goal_lines:
-        # Join the collected lines back into a single string.
-        return "\n".join(goal_lines).strip()
 
+    if goal_lines:
+        return "\n".join(goal_lines).strip()
     raise ValueError(f"No short-term goal found in {goals_file}")
 
 async def main():
-    '''
-    The main entry point for the self-improving agent.
-    '''
+    '''The main entry point for the self-improving agent.'''
     parser = argparse.ArgumentParser(
         description="A self-improving code generator.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        '--project-dir',
+        type=str,
+        required=True,
+        help="The path to the project directory to be improved."
     )
     parser.add_argument(
         '--branches',
@@ -70,16 +62,16 @@ async def main():
     args = parser.parse_args()
 
     try:
+        # goals.md is always read from the agent's directory.
         active_goal = get_active_goal('goals.md')
     except (FileNotFoundError, ValueError) as e:
         print(f"Error: Could not load goal. {e}")
         return
 
-    # Instantiate core components
-    safe_io = SafeIO()
-    improver = Improver(safe_io) # Instantiating the class from the library
+    # Instantiate core components with the project directory.
+    safe_io = SafeIO(project_dir=args.project_dir)
+    improver = Improver(safe_io)
 
-    # The call is unchanged and correct
     await improver.run(
         goal=active_goal,
         num_branches=args.branches,
