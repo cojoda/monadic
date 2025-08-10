@@ -6,11 +6,10 @@
 - Optimize for cost, performance, and code quality based on high-level human guidance.
 
 ## Short Term
-- Implement a self-correction loop for the IntegrationRunner.
+- Implement autonomous test quarantining.
 
-This involves updating `improver/integration.py` with the following logic:
-1.  **Modify the `IntegrationRunner.run` method.** When a `SyntaxError` is detected in the integrated code, do not immediately exit. Instead, start a retry loop that can be attempted up to 2 times.
-2.  **Capture and Pass Error Context.** Inside this loop, capture the file path and the specific `SyntaxError` message.
-3.  **Update the `IntegratorTask.construct_prompt` method.** It must be updated to accept an optional `error_context` string. When this string is provided, it should be added to the prompt, instructing the LLM to fix the syntax error in its next integration attempt.
-4.  **Re-run the Integration.** Call the `IntegratorTask` again with the original proposals and the new error context.
-5.  **Fallback.** If the integration still fails after the maximum number of retries, only then should the runner abort and return `None`.
+This involves updating `improver/orchestrator.py`: Inside the `Improver.run` method's test failure logic, add a new condition. If the `TestFailureAnalysisTask` returns a `test_flaw` verdict, the system must:
+1.  Immediately add the faulty test's name to a `quarantined_tests.json` file within the target project directory.
+2.  Re-run the test suite, excluding any quarantined tests.
+3.  If the remaining tests pass, proceed to apply the original code changes.
+4.  Print a clear WARNING listing any tests that were quarantined.
